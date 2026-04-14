@@ -1,0 +1,86 @@
+# =========================
+# Python
+# =========================
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual Environments
+.venv/
+venv/
+env/
+ENV/
+
+# =========================
+# VS Code & IDEs
+# =========================
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# =========================
+# Environment Variables
+# =========================
+.env
+.env.*
+
+# =========================
+# Logs & Runtime Files
+# =========================
+*.log
+*.out
+*.err
+
+# =========================
+# OS Files
+# =========================
+.DS_Store
+Thumbs.db
+
+# =========================
+# Data / Database (ignore large & sensitive)
+# =========================
+data/*
+!data/.gitkeep
+
+db/*
+!db/.gitkeep
+
+# =========================
+# Model Files (very important for ML)
+# =========================
+models/*
+!models/.gitkeep
+
+*.h5
+*.pt
+*.pth
+*.ckpt
+*.onnx
+*.pkl
+*.joblib
+
+# =========================
+# Exports / Outputs
+# =========================
+exports/*
+!exports/.gitkeep
+
+# =========================
+# Cache / Temp
+# =========================
+.cache/
+*.tmp
+*.temp
+
+# =========================
+# Jupyter Notebooks
+# =========================
+.ipynb_checkpoints
+
+# =========================
+# Misc
+# =========================
+*.sqlite3
+*.db
