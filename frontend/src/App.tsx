@@ -5,7 +5,7 @@ import {
   Search, Brain, Microscope, BarChart2, PenLine, CheckCircle2,
   Loader2, CheckCheck, XCircle, HelpCircle, Download, RefreshCw,
   Trash2, ChevronDown, ChevronUp, X, Play, ArrowRight,
-  Sparkles, Clock, BookOpen, Zap,
+  Sparkles, Clock, BookOpen, Zap, Copy, ClipboardCheck
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -40,29 +40,45 @@ const SUGGESTIONS = [
 ];
 
 const AGENT_COLORS: Record<string, string> = {
-  planner:    "#a78bfa",
-  search:     "#60a5fa",
-  extraction: "#22d3ee",
-  aggregator: "#4ade80",
-  synthesis:  "#34d399",
-  critic:     "#fbbf24",
-  ranker:     "#c084fc",
-  system:     "#484f58",
+  planner:    "var(--accent)",
+  search:     "#06b6d4",     // Cyan
+  extraction: "#4ade80",     // Lime Green
+  aggregator: "#fbbf24",     // Amber
+  synthesis:  "var(--accent)", // Yellow-green
+  critic:     "#f87171",     // Coral Red
+  ranker:     "#a0a3ad",     // Dim Grey
+  system:     "var(--text-muted)",
 };
 
 // ─── Helper Components ───────────────────────────────────────────────────────
 function ConfidenceBar({ value }: { value: number }) {
   const pct = Math.round(value * 100);
-  const color = pct >= 75 ? "#4ade80" : pct >= 55 ? "#fbbf24" : "#f87171";
-  const label = pct >= 80 ? "High" : pct >= 65 ? "Good" : pct >= 50 ? "Fair" : "Low";
+  const color = "var(--accent)";
+  const glowColor = "var(--accent-glow)";
+  const label = pct >= 85 ? "Verified" : pct >= 70 ? "Credible" : pct >= 50 ? "Moderate" : "Low Confidence";
+  
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "6px 0" }}>
-      <span style={{ fontSize: "0.75rem", color: "var(--text-secondary)", minWidth: 72 }}>Confidence</span>
-      <div style={{ flex: 1, height: 5, background: "var(--bg-hover)", borderRadius: 3, overflow: "hidden" }}>
-        <div style={{ width: `${pct}%`, height: "100%", background: color, borderRadius: 3, transition: "width 0.5s ease" }} />
+    <div style={{ display: "flex", alignItems: "center", gap: 14, margin: "6px 0" }}>
+      <span style={{ fontSize: "0.8rem", color: "var(--text-secondary)", minWidth: 90, fontWeight: 600, letterSpacing: "0.02em" }}>
+        Confidence
+      </span>
+      <div style={{ flex: 1, height: 8, background: "rgba(255,255,255,0.03)", borderRadius: 6, border: "1px solid var(--border-soft)", overflow: "hidden", position: "relative" }}>
+        <div style={{
+          width: `${pct}%`, height: "100%", background: `linear-gradient(to right, #ffffff, ${color})`, borderRadius: 6,
+          boxShadow: `0 0 12px ${glowColor}`,
+          transition: "width 0.8s cubic-bezier(0.4, 0, 0.2, 1)"
+        }} />
       </div>
-      <span style={{ fontSize: "0.92rem", fontWeight: 700, color }}>{pct}%</span>
-      <span style={{ fontSize: "0.72rem", fontWeight: 600, color }}>{label}</span>
+      <span style={{ fontSize: "1rem", fontWeight: 800, color: "var(--text-primary)" }}>{pct}%</span>
+      <span style={{ 
+        fontSize: "0.7rem", fontWeight: 700, 
+        color: pct >= 70 ? "var(--accent)" : pct >= 50 ? "var(--yellow)" : "var(--red)", 
+        border: `1px solid ${pct >= 70 ? "var(--accent-muted)" : pct >= 50 ? "rgba(251,191,36,0.2)" : "rgba(248,113,113,0.2)"}`,
+        background: pct >= 70 ? "var(--accent-glow)" : pct >= 50 ? "rgba(251,191,36,0.05)" : "rgba(248,113,113,0.05)",
+        padding: "2px 8px", borderRadius: 4, textTransform: "uppercase" 
+      }}>
+        {label}
+      </span>
     </div>
   );
 }
@@ -70,22 +86,31 @@ function ConfidenceBar({ value }: { value: number }) {
 function StageTracker({ status }: { status: string }) {
   const activeIdx = STATUS_STAGE_INDEX[status] ?? -1;
   const isDone = status === "complete";
+  
   return (
-    <div style={{ display: "flex", gap: 0, margin: "14px 0 4px" }}>
+    <div style={{ display: "flex", gap: 8, margin: "22px 0 8px" }}>
       {STAGES.map((stage, i) => {
         const Icon = stage.icon;
         const done   = isDone || i < activeIdx;
         const active = i === activeIdx && !isDone;
+        
         return (
           <div key={stage.key} style={{
-            flex: 1, textAlign: "center", padding: "8px 4px",
-            borderTop: `2px solid ${done ? "#4ade80" : active ? "#7c3aed" : "#21262d"}`,
-            color: done ? "#4ade80" : active ? "#a78bfa" : "#484f58",
-            fontSize: "0.68rem", fontWeight: active ? 700 : 400,
-            animation: active ? "pulse 1.4s ease-in-out infinite" : undefined,
-            transition: "all .3s ease",
+            flex: 1, textAlign: "center", padding: "12px 6px 10px",
+            borderTop: `2.5px solid ${done ? "var(--accent)" : active ? "#ffffff" : "var(--border-soft)"}`,
+            color: done ? "var(--accent)" : active ? "#ffffff" : "var(--text-muted)",
+            fontSize: "0.76rem", fontWeight: active ? 800 : 500,
+            background: active ? "var(--accent-glow)" : "transparent",
+            borderRadius: "0 0 10px 10px",
+            transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
+            boxShadow: active ? "0 4px 12px var(--accent-glow)" : "none",
           }}>
-            <Icon size={14} style={{ display: "block", margin: "0 auto 3px" }} />
+            <Icon size={15} style={{
+              display: "block", margin: "0 auto 6px",
+              color: done ? "var(--accent)" : active ? "#ffffff" : "var(--text-muted)",
+              transform: active ? "scale(1.12)" : "none",
+              transition: "all 0.3s ease"
+            }} className={active ? "animate-pulse" : undefined} />
             {stage.label}
           </div>
         );
@@ -96,12 +121,16 @@ function StageTracker({ status }: { status: string }) {
 
 function MetricCard({ label, value }: { label: string; value: string | number }) {
   return (
-    <div style={{
-      background: "var(--bg-elevated)", border: "1px solid var(--border)",
-      borderRadius: "var(--radius)", padding: "12px 16px", textAlign: "center",
+    <div className="card" style={{
+      padding: "16px 20px", textAlign: "center", display: "flex", flexDirection: "column",
+      justifyContent: "center", gap: 4, borderRadius: "var(--radius)", background: "rgba(17, 18, 21, 0.4)"
     }}>
-      <div style={{ fontSize: "1.4rem", fontWeight: 800, color: "var(--text-primary)" }}>{value ?? "—"}</div>
-      <div style={{ fontSize: "0.72rem", color: "var(--text-secondary)", marginTop: 2 }}>{label}</div>
+      <div style={{ fontSize: "1.6rem", fontWeight: 900, color: "var(--text-primary)", letterSpacing: "-0.01em" }}>
+        {value ?? "—"}
+      </div>
+      <div style={{ fontSize: "0.75rem", color: "var(--text-secondary)", fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.03em" }}>
+        {label}
+      </div>
     </div>
   );
 }
@@ -111,20 +140,22 @@ function StatusPill({ status }: { status: string }) {
   const displayStatus = isRunning ? "running" : status;
 
   const cfg: Record<string, { bg: string; color: string; icon: React.ReactNode }> = {
-    complete: { bg: "rgba(74,222,128,.1)",  color: "#4ade80", icon: <CheckCheck size={12} /> },
-    running:  { bg: "rgba(96,165,250,.1)",  color: "#60a5fa", icon: <Loader2 size={12} className="animate-spin" /> },
-    error:    { bg: "rgba(248,113,113,.1)", color: "#f87171", icon: <XCircle size={12} /> },
+    complete: { bg: "var(--accent-glow)",  color: "var(--accent)", icon: <CheckCheck size={12} /> },
+    running:  { bg: "rgba(255,255,255,.03)",  color: "#ffffff", icon: <Loader2 size={12} className="animate-spin" /> },
+    error:    { bg: "rgba(248,113,113,.08)", color: "#f87171", icon: <XCircle size={12} /> },
   };
+  
   const c = cfg[displayStatus] ?? { bg: "var(--bg-elevated)", color: "var(--text-secondary)", icon: null };
   const label = isRunning 
-    ? (status === "running" ? "Running" : `${status.charAt(0).toUpperCase() + status.slice(1)}...`) 
+    ? (status === "running" ? "Running" : `${status.charAt(0).toUpperCase() + status.slice(1)}…`) 
     : status.charAt(0).toUpperCase() + status.slice(1);
 
   return (
     <span style={{
-      display: "inline-flex", alignItems: "center", gap: 5,
-      background: c.bg, color: c.color,
-      padding: "4px 12px", borderRadius: 20, fontSize: "0.78rem", fontWeight: 600,
+      display: "inline-flex", alignItems: "center", gap: 6,
+      background: c.bg, color: c.color, border: `1px solid ${c.color}25`,
+      padding: "6px 14px", borderRadius: 24, fontSize: "0.78rem", fontWeight: 700,
+      boxShadow: isRunning ? "0 0 10px rgba(255, 255, 255, 0.02)" : "none",
     }}>
       {c.icon}{label}
     </span>
@@ -133,76 +164,149 @@ function StatusPill({ status }: { status: string }) {
 
 function LiveLog({ entries }: { entries: ProgressEntry[] }) {
   const ref = useRef<HTMLDivElement>(null);
+  const [copied, setCopied] = useState(false);
+
   useEffect(() => {
     if (ref.current) ref.current.scrollTop = ref.current.scrollHeight;
   }, [entries]);
 
+  const handleCopy = () => {
+    const text = entries.map(e => `[${e.agent.toUpperCase()}] ${e.message}`).join("\n");
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
   return (
-    <div ref={ref} style={{
-      background: "var(--bg-base)", border: "1px solid var(--border)",
-      borderRadius: "var(--radius)", padding: "12px 14px",
-      fontFamily: "'JetBrains Mono', monospace", fontSize: "0.75rem",
-      maxHeight: 260, overflowY: "auto",
-    }}>
-      {entries.slice(-40).map((e, i) => (
-        <div key={i} style={{
-          padding: "2px 0 2px 10px", margin: "1px 0",
-          color: "#c9d1d9", borderLeft: `2px solid ${AGENT_COLORS[e.agent] ?? "#30363d"}`,
-        }}>
-          {e.message}
+    <div className="terminal-window">
+      <div className="terminal-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div style={{ display: "flex", gap: 6 }}>
+          <div className="terminal-dot red" />
+          <div className="terminal-dot yellow" />
+          <div className="terminal-dot green" />
         </div>
-      ))}
+        <span style={{ fontSize: "0.72rem", fontFamily: "'JetBrains Mono', monospace", color: "var(--text-muted)", fontWeight: 500 }}>
+          ScholarNode Pipeline Activity Logs
+        </span>
+        <button 
+          onClick={handleCopy}
+          className="btn btn-secondary btn-sm"
+          style={{ padding: "4px 8px", gap: 4, height: 22, fontSize: "0.68rem", borderRadius: 4, border: "1px solid var(--border)" }}
+        >
+          {copied ? <ClipboardCheck size={11} color="var(--accent)" /> : <Copy size={11} />}
+          {copied ? "Copied" : "Copy"}
+        </button>
+      </div>
+      <div ref={ref} style={{
+        fontFamily: "'JetBrains Mono', monospace", fontSize: "0.76rem",
+        maxHeight: 260, overflowY: "auto", color: "#e4e4e7", display: "flex", flexDirection: "column", gap: 5, padding: "4px 0"
+      }}>
+        {entries.length === 0 ? (
+          <div style={{ color: "var(--text-muted)", padding: "10px 0", textAlign: "center" }}>Initializing process log stream...</div>
+        ) : (
+          entries.slice(-50).map((e, i) => (
+            <div key={i} style={{
+              padding: "2px 0 2px 10px", margin: 0,
+              borderLeft: `2.5px solid ${AGENT_COLORS[e.agent] ?? "var(--border-dim)"}`,
+              lineHeight: 1.5
+            }}>
+              <span style={{ color: AGENT_COLORS[e.agent] ?? "var(--text-secondary)", fontWeight: 600, marginRight: 8, letterSpacing: "-0.01em" }}>
+                [{e.agent.toUpperCase()}]
+              </span>
+              {e.message}
+            </div>
+          ))
+        )}
+      </div>
     </div>
   );
 }
 
 function FactCheckPanel({ factChecks, critique }: { factChecks: ResearchData["report"] extends null ? never : NonNullable<ResearchData["report"]>["fact_checks"]; critique: string }) {
+  const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
+
   const icons: Record<string, React.ReactNode> = {
-    supported:   <CheckCheck size={14} color="#4ade80" />,
-    unsupported: <XCircle size={14} color="#f87171" />,
-    uncertain:   <HelpCircle size={14} color="#fbbf24" />,
+    supported:   <CheckCheck size={15} color="var(--accent)" />,
+    unsupported: <XCircle size={15} color="#f87171" />,
+    uncertain:   <HelpCircle size={15} color="#fbbf24" />,
   };
+  
   const s = factChecks.filter(f => f.verdict === "supported").length;
   const u = factChecks.filter(f => f.verdict === "unsupported").length;
   const n = factChecks.filter(f => f.verdict === "uncertain").length;
 
   return (
-    <div style={{ marginTop: 16 }}>
+    <div style={{ marginTop: 18 }}>
       {critique && (
         <div style={{
-          background: "rgba(96,165,250,.08)", border: "1px solid rgba(96,165,250,.2)",
-          borderRadius: "var(--radius)", padding: "12px 16px", marginBottom: 16,
-          color: "var(--text-primary)", fontSize: "0.85rem",
+          background: "var(--accent-glow)", border: "1px solid var(--accent-muted)",
+          borderRadius: "var(--radius)", padding: "16px 20px", marginBottom: 20,
+          color: "#e1e3e6", fontSize: "0.9rem", lineHeight: 1.6
         }}>
-          <span style={{ color: "#60a5fa", fontWeight: 600 }}>Critic: </span>{critique}
+          <span style={{ color: "var(--accent)", fontWeight: 800, textTransform: "uppercase", fontSize: "0.76rem", display: "block", marginBottom: 4, letterSpacing: "0.02em" }}>
+            Critic Auditor Verdict
+          </span>
+          {critique}
         </div>
       )}
-      <div style={{ display: "flex", gap: 10, marginBottom: 16 }}>
-        {[{ label: "Supported", val: s, color: "#4ade80" }, { label: "Unsupported", val: u, color: "#f87171" }, { label: "Uncertain", val: n, color: "#fbbf24" }].map(m => (
+      
+      <div style={{ display: "flex", gap: 12, marginBottom: 20 }}>
+        {[{ label: "Supported Claims", val: s, color: "var(--accent)" }, { label: "Unsupported", val: u, color: "#f87171" }, { label: "Uncertain", val: n, color: "#fbbf24" }].map(m => (
           <div key={m.label} style={{
-            flex: 1, background: "var(--bg-elevated)", border: "1px solid var(--border)",
-            borderRadius: "var(--radius)", padding: "10px", textAlign: "center",
+            flex: 1, background: "rgba(17, 18, 21, 0.4)", border: "1px solid var(--border-soft)",
+            borderRadius: "var(--radius)", padding: "14px", textAlign: "center",
           }}>
-            <div style={{ fontSize: "1.3rem", fontWeight: 800, color: m.color }}>{m.val}</div>
-            <div style={{ fontSize: "0.72rem", color: "var(--text-secondary)" }}>{m.label}</div>
+            <div style={{ fontSize: "1.6rem", fontWeight: 900, color: m.color }}>{m.val}</div>
+            <div style={{ fontSize: "0.74rem", color: "var(--text-secondary)", fontWeight: 500, marginTop: 2 }}>{m.label}</div>
           </div>
         ))}
       </div>
-      {factChecks.map((fc, i) => (
-        <div key={i} style={{
-          display: "flex", gap: 12, padding: "10px 0",
-          borderBottom: i < factChecks.length - 1 ? "1px solid var(--border-soft)" : undefined,
-          alignItems: "flex-start",
-        }}>
-          <div style={{ marginTop: 2, flexShrink: 0 }}>{icons[fc.verdict]}</div>
-          <div>
-            <div style={{ fontSize: "0.85rem", color: "var(--text-primary)" }}>{fc.claim}</div>
-            {fc.evidence && (
-              <div style={{ fontSize: "0.78rem", color: "var(--text-secondary)", marginTop: 4 }}>{fc.evidence}</div>
-            )}
-          </div>
-        </div>
-      ))}
+      
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {factChecks.map((fc, i) => {
+          const isExpanded = expandedIndex === i;
+          return (
+            <div key={i} style={{
+              background: "rgba(255, 255, 255, 0.01)", border: `1px solid ${isExpanded ? "var(--accent-muted)" : "var(--border-soft)"}`,
+              borderRadius: "var(--radius)", padding: "14px 18px", transition: "all 0.2s ease"
+            }}>
+              <div 
+                style={{ display: "flex", gap: 12, alignItems: "flex-start", cursor: fc.evidence ? "pointer" : "default" }}
+                onClick={() => fc.evidence && setExpandedIndex(isExpanded ? null : i)}
+              >
+                <div style={{ marginTop: 2, flexShrink: 0 }}>{icons[fc.verdict]}</div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: "0.92rem", color: "#ffffff", fontWeight: 600, lineHeight: 1.4 }}>{fc.claim}</div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 6 }}>
+                    <span className={`badge ${fc.verdict === "supported" ? "badge-accent" : fc.verdict === "unsupported" ? "badge-red" : "badge-yellow"}`}>
+                      {fc.verdict.toUpperCase()}
+                    </span>
+                    {fc.evidence && (
+                      <span style={{ fontSize: "0.72rem", color: "var(--text-muted)", fontWeight: 500 }}>
+                        {isExpanded ? "Click to hide evidence" : "Click to view raw evidence source"}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+              
+              {isExpanded && fc.evidence && (
+                <div style={{ 
+                  marginTop: 12, padding: "12px 16px", background: "rgba(0,0,0,0.2)",
+                  borderLeft: `2.5px solid ${fc.verdict === "supported" ? "var(--accent)" : fc.verdict === "unsupported" ? "var(--red)" : "var(--yellow)"}`,
+                  borderRadius: "0 6px 6px 0", fontSize: "0.84rem", color: "var(--text-secondary)", lineHeight: 1.5,
+                  animation: "slideDown 0.2s ease"
+                }}>
+                  <strong style={{ color: "#fff", display: "block", marginBottom: 4, fontSize: "0.78rem", textTransform: "uppercase", letterSpacing: "0.02em" }}>
+                    Source Context:
+                  </strong>
+                  "{fc.evidence}"
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -298,8 +402,8 @@ function LiveResearchPanel({ sessionId, topic, onClear }: {
   if (!data) {
     return (
       <div style={{ textAlign: "center", padding: 48, color: "var(--text-secondary)" }}>
-        <Loader2 size={28} className="animate-spin" style={{ margin: "0 auto 12px" }} />
-        Loading research data…
+        <Loader2 size={28} className="animate-spin" style={{ margin: "0 auto 12px", color: "var(--accent)" }} />
+        Loading research session…
       </div>
     );
   }
@@ -314,8 +418,8 @@ function LiveResearchPanel({ sessionId, topic, onClear }: {
       <div className="card" style={{ marginBottom: 16 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
           <div>
-            <div style={{ fontSize: "1.05rem", fontWeight: 700, color: "var(--text-primary)" }}>{topic}</div>
-            <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: 3 }}>
+            <div style={{ fontSize: "1.1rem", fontWeight: 700, color: "var(--text-primary)" }}>{topic}</div>
+            <div style={{ fontSize: "0.76rem", color: "var(--text-muted)", marginTop: 3, fontFamily: "monospace" }}>
               Session: {sessionId.slice(0, 8)}…
             </div>
           </div>
@@ -345,14 +449,14 @@ function LiveResearchPanel({ sessionId, topic, onClear }: {
           style={{
             display: "flex", alignItems: "center", gap: 6, background: "none",
             border: "none", color: "var(--text-secondary)", cursor: "pointer",
-            fontSize: "0.82rem", fontWeight: 500, width: "100%",
+            fontSize: "0.86rem", fontWeight: 600, width: "100%", outline: "none"
           }}
         >
-          {logOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-          Activity Log ({progress.length} entries)
+          {logOpen ? <ChevronUp size={14} color="var(--accent)" /> : <ChevronDown size={14} color="var(--accent)" />}
+          Activity Logs ({progress.length} entries)
         </button>
-        {logOpen && progress.length > 0 && (
-          <div style={{ marginTop: 10 }}>
+        {logOpen && (
+          <div style={{ marginTop: 12 }}>
             <LiveLog entries={progress} />
           </div>
         )}
@@ -362,18 +466,19 @@ function LiveResearchPanel({ sessionId, topic, onClear }: {
       {status === "complete" && report && (
         <div className="animate-fade">
           <div style={{
-            background: "rgba(74,222,128,.08)", border: "1px solid rgba(74,222,128,.2)",
+            background: "var(--accent-glow)", border: "1px solid var(--accent-muted)",
             borderRadius: "var(--radius-lg)", padding: "14px 20px",
-            display: "flex", alignItems: "center", justifyContent: "space-between",
+            display: "flex", alignItems: "center", justifyItems: "center", justifyContent: "space-between",
             marginBottom: 16,
+            boxShadow: "0 4px 16px var(--accent-glow)"
           }}>
-            <span style={{ color: "#4ade80", fontWeight: 600 }}>
-              🎉 Research complete! Confidence: {Math.round(conf * 100)}%
+            <span style={{ color: "var(--accent)", fontWeight: 700, fontSize: "0.92rem", display: "inline-flex", alignItems: "center", gap: 6 }}>
+              🎉 Research completed successfully! Confidence: {Math.round(conf * 100)}%
             </span>
             <div style={{ display: "flex", gap: 8 }}>
               <ExportButtons sessionId={sessionId} report={report} />
               <button className="btn btn-secondary btn-sm" onClick={() => continueResearch(sessionId).then(fetchData)}>
-                <RefreshCw size={13} /> Continue
+                <RefreshCw size={13} /> Continue Research
               </button>
             </div>
           </div>
@@ -386,11 +491,11 @@ function LiveResearchPanel({ sessionId, topic, onClear }: {
                 style={{
                   display: "flex", alignItems: "center", gap: 6, background: "none",
                   border: "none", color: "var(--text-secondary)", cursor: "pointer",
-                  fontSize: "0.82rem", fontWeight: 500, width: "100%",
+                  fontSize: "0.86rem", fontWeight: 600, width: "100%", outline: "none"
                 }}
               >
-                {evalOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                🔬 LLM Evaluation — {report.fact_checks?.length ?? 0} claims fact-checked
+                {evalOpen ? <ChevronUp size={14} color="var(--accent)" /> : <ChevronDown size={14} color="var(--accent)" />}
+                🔬 LLM Evaluation Report — {report.fact_checks?.length ?? 0} claims fact-checked
               </button>
               {evalOpen && (
                 <FactCheckPanel factChecks={report.fact_checks ?? []} critique={report.critique ?? ""} />
@@ -413,7 +518,7 @@ function LiveResearchPanel({ sessionId, topic, onClear }: {
           borderRadius: "var(--radius-lg)", padding: 20, color: "#f87171",
         }}>
           <XCircle size={18} style={{ marginBottom: 6 }} />
-          <div>Pipeline failed — check the Activity Log for details.</div>
+          <div>Pipeline failed — check the Activity Logs for details.</div>
         </div>
       )}
     </div>
@@ -429,6 +534,7 @@ function ResearchTab({ onSessionStart, activeSessionId, activeTopic, onClearSess
 }) {
   const [topic, setTopic] = useState("");
   const [loading, setLoading] = useState(false);
+  const [activeStep, setActiveStep] = useState<number | null>(null); // for interactive diagram
   const startingRef = useRef(false); // guard against double-click
 
   const handleStart = async () => {
@@ -446,6 +552,90 @@ function ResearchTab({ onSessionStart, activeSessionId, activeTopic, onClearSess
     }
   };
 
+  const diagramSteps = [
+    {
+      num: 1,
+      title: "User Query Input & Intent Parsing",
+      subtitle: "Preparing session parameters and async contexts",
+      icon: FileText,
+      engine: "FastAPI Endpoint Manager",
+      desc: "ScholarNode AI receives your research topic, establishes a unique session ID in the SQLite database, and initializes the background logging and state variables.",
+      why: "Sets up an isolated, trackable runtime state so logs and findings persist even if the server restarts."
+    },
+    {
+      num: 2,
+      title: "Planner Agent (Topic Deconstruction)",
+      subtitle: "Brainstorming a structured research outline",
+      icon: Brain,
+      engine: "Gemini 3.5 Flash (Planning)",
+      desc: "Analyzes the query's underlying intent and splits it into 3 to 5 discrete subtopics. For each subtopic, it defines query strategies, source kinds (academic/news), and expected evidence.",
+      why: "Guides targeted, multi-dimensional search patterns instead of executing shallow, single-sentence web queries."
+    },
+    {
+      num: 3,
+      title: "Search Agent (Parallel Data Retrieval)",
+      subtitle: "Scouring indexes and scraping raw text bodies",
+      icon: Search,
+      engine: "Tavily API, DDG, arXiv, Semantic Scholar, Wikipedia",
+      desc: "Queries search APIs in parallel. Then, it runs raw document scraper loops using Trafilatura, Readability-lxml, and BeautifulSoup to fetch full page texts while respecting rate limits.",
+      why: "Aggregates recent news, standard web documentation, and peer-reviewed literature in one step."
+    },
+    {
+      num: 4,
+      title: "Source Ranking Module (Quality Filtering)",
+      subtitle: "Scoring domain credibility and query relevance",
+      icon: BarChart2,
+      engine: "BAAI/bge-small-en-v1.5 Embeddings",
+      desc: "Converts crawled documents to vectors and measures relevance. Adds credibility weights based on domain endings (.edu, .gov, or academic journals score highest) to rank sources.",
+      why: "Discards commercial advertisements, forums, and landing pages to ensure only trustworthy sources are referenced."
+    },
+    {
+      num: 5,
+      title: "Extraction Agent (Claim Extraction)",
+      subtitle: "Parsing articles into factual evidence claims",
+      icon: Microscope,
+      engine: "Groq Llama 3.3 70B (High-Volume Free Tier)",
+      desc: "Processes source paragraphs using an ultra-fast LLM. It extracts atomic fact-claims, assigns truth ratings, and records exact paragraph locations for strict citation mapping.",
+      why: "Sifts out opinionated editorial text, marketing noise, and fluff, producing a database of clean facts."
+    },
+    {
+      num: 6,
+      title: "Evidence Aggregator (Clustering Findings)",
+      subtitle: "Grouping supporting facts and catching disagreements",
+      icon: PenLine,
+      engine: "In-Memory Semantic Matrix Aggregator",
+      desc: "Groups matching claims from diverse sources into singular findings. It flags contradictory statements to highlight scientific disputes or hallucinated data.",
+      why: "Consolidates matching arguments to reduce duplicates and highlights issues where sources disagree."
+    },
+    {
+      num: 7,
+      title: "Synthesis Agent (Drafting structured report)",
+      subtitle: "Writing a publication-ready scientific draft",
+      icon: BookOpen,
+      engine: "Gemini 3.5 Flash (Synthesis)",
+      desc: "Transforms the findings and bibliography links into a detailed 1,500+ word markdown report containing an Executive Summary, Section Analyses, and Limitations.",
+      why: "Translates abstract fact nodes into readable, professional, fully cited academic prose."
+    },
+    {
+      num: 8,
+      title: "Critic Agent (Line-by-Line Fact Audit)",
+      subtitle: "Auditing assertions against the evidence pool",
+      icon: CheckCircle2,
+      engine: "Gemini 3.5 Flash (Auditor & Critic)",
+      desc: "Extracts every claim in the written draft and compares it back to the scraped raw evidence. Computes confidence scores. If gaps are found, it triggers a targeted follow-up query loop.",
+      why: "Ensures the system produces zero hallucinations by double-checking that every statement has primary evidence."
+    },
+    {
+      num: 9,
+      title: "Final Response & Document Exports",
+      subtitle: "Finalizing database states and generating file exports",
+      icon: CheckCheck,
+      engine: "Office Open XML & Markdown Compiler",
+      desc: "Closes the active session status, saves final metrics, and generates download bundles for Markdown, Word DOCX, and raw session JSON datasets.",
+      why: "Delivers portable, production-ready files that can be imported to any another ScholarNode machine."
+    }
+  ];
+
   return (
     <div>
       {/* Hero */}
@@ -453,27 +643,30 @@ function ResearchTab({ onSessionStart, activeSessionId, activeTopic, onClearSess
         {/* Ambient background glow */}
         <div style={{
           position: "absolute", top: "5%", left: "50%", transform: "translateX(-50%)",
-          width: 320, height: 320, background: "radial-gradient(circle, rgba(124,58,237,0.18) 0%, rgba(0,0,0,0) 70%)",
+          width: 320, height: 320, background: "radial-gradient(circle, rgba(186,255,57,0.06) 0%, rgba(0,0,0,0) 75%)",
           zIndex: -1, pointerEvents: "none"
         }} />
+        
         <div style={{ display: "inline-flex", alignItems: "center", gap: 10, marginBottom: 24 }}>
           <div style={{
-            width: 60, height: 60, borderRadius: 16,
-            background: "linear-gradient(135deg, #7c3aed, #2563eb)",
+            width: 60, height: 60, borderRadius: 18,
+            background: "linear-gradient(135deg, var(--accent), var(--accent-light))",
             display: "flex", alignItems: "center", justifyContent: "center",
-            boxShadow: "0 0 35px rgba(124,58,237,.5)",
+            boxShadow: "0 0 35px var(--accent-glow)",
           }}>
-            <FlaskConical size={28} color="#fff" />
+            <FlaskConical size={28} color="#000000" />
           </div>
         </div>
+        
         <h1 style={{
-          fontSize: "3.2rem", fontWeight: 800, letterSpacing: "-0.03em", lineHeight: 1.15, marginBottom: 16,
-          background: "linear-gradient(135deg, #c084fc, #60a5fa, #34d399)",
+          fontSize: "3.4rem", fontWeight: 900, letterSpacing: "-0.03em", lineHeight: 1.15, marginBottom: 16,
+          background: "linear-gradient(135deg, #ffffff 30%, var(--accent) 75%, var(--border-dim) 100%)",
           WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text",
         }}>
           ScholarNode AI
         </h1>
-        <p style={{ color: "var(--text-secondary)", fontSize: "1.05rem", maxWidth: 520, margin: "0 auto 36px", lineHeight: 1.6 }}>
+        
+        <p style={{ color: "var(--text-secondary)", fontSize: "1.05rem", maxWidth: 540, margin: "0 auto 36px", lineHeight: 1.6 }}>
           Explore the frontiers of science. Generate fully cited, validated research reports in minutes powered by Gemini's free tier with automated fallback.
         </p>
 
@@ -487,22 +680,24 @@ function ResearchTab({ onSessionStart, activeSessionId, activeTopic, onClearSess
               key={i}
               onClick={() => setTopic(s.text)}
               style={{
-                background: "rgba(26, 29, 36, 0.6)",
-                border: "1px solid rgba(48, 54, 61, 0.8)",
-                borderRadius: 20, padding: "8px 16px",
-                fontSize: "0.82rem", color: "var(--text-secondary)", cursor: "pointer",
+                background: "rgba(17, 18, 21, 0.5)",
+                border: "1px solid var(--border)",
+                borderRadius: 24, padding: "8px 18px",
+                fontSize: "0.84rem", color: "var(--text-secondary)", cursor: "pointer",
                 transition: "all .2s ease",
                 display: "flex", alignItems: "center", gap: 6, fontFamily: "inherit",
               }}
               onMouseEnter={e => {
-                (e.currentTarget as HTMLButtonElement).style.borderColor = "#7c3aed";
-                (e.currentTarget as HTMLButtonElement).style.color = "#a78bfa";
-                (e.currentTarget as HTMLButtonElement).style.transform = "scale(1.02)";
+                (e.currentTarget as HTMLButtonElement).style.borderColor = "var(--accent)";
+                (e.currentTarget as HTMLButtonElement).style.color = "var(--accent)";
+                (e.currentTarget as HTMLButtonElement).style.transform = "translateY(-1px)";
+                (e.currentTarget as HTMLButtonElement).style.boxShadow = "0 4px 12px var(--accent-glow)";
               }}
               onMouseLeave={e => {
-                (e.currentTarget as HTMLButtonElement).style.borderColor = "rgba(48, 54, 61, 0.8)";
+                (e.currentTarget as HTMLButtonElement).style.borderColor = "var(--border)";
                 (e.currentTarget as HTMLButtonElement).style.color = "var(--text-secondary)";
                 (e.currentTarget as HTMLButtonElement).style.transform = "none";
+                (e.currentTarget as HTMLButtonElement).style.boxShadow = "none";
               }}
             >
               <span>{s.icon}</span> {s.text}
@@ -513,15 +708,21 @@ function ResearchTab({ onSessionStart, activeSessionId, activeTopic, onClearSess
         {/* Input area */}
         <div style={{ maxWidth: 680, margin: "0 auto" }}>
           <div style={{
-            background: "linear-gradient(135deg, rgba(124, 58, 237, 0.15), rgba(37, 99, 235, 0.05))",
-            border: "1px solid rgba(124, 58, 237, 0.3)",
+            background: "var(--bg-surface)",
+            border: "1px solid var(--border)",
             borderRadius: 16, padding: "3px",
-            boxShadow: "0 8px 32px rgba(0, 0, 0, 0.4)",
+            boxShadow: "inset 0 2px 4px rgba(0,0,0,0.5)",
             transition: "all 0.3s ease",
             marginBottom: 16
           }}
-          onFocusCapture={e => e.currentTarget.style.borderColor = "#7c3aed"}
-          onBlurCapture={e => e.currentTarget.style.borderColor = "rgba(124, 58, 237, 0.3)"}
+          onFocusCapture={e => {
+            e.currentTarget.style.borderColor = "var(--accent)";
+            e.currentTarget.style.boxShadow = "0 0 16px var(--accent-glow)";
+          }}
+          onBlurCapture={e => {
+            e.currentTarget.style.borderColor = "var(--border)";
+            e.currentTarget.style.boxShadow = "inset 0 2px 4px rgba(0,0,0,0.5)";
+          }}
           >
             <textarea
               value={topic}
@@ -531,7 +732,7 @@ function ResearchTab({ onSessionStart, activeSessionId, activeTopic, onClearSess
               rows={2}
               style={{
                 width: "100%", padding: "14px 16px",
-                background: "var(--bg-surface)", border: "none",
+                background: "transparent", border: "none",
                 borderRadius: 13, color: "var(--text-primary)",
                 fontSize: "1rem", resize: "none", fontFamily: "inherit",
                 outline: "none", lineHeight: 1.5,
@@ -544,18 +745,7 @@ function ResearchTab({ onSessionStart, activeSessionId, activeTopic, onClearSess
             disabled={!topic.trim() || loading || !!activeSessionId}
             style={{
               borderRadius: 14,
-              background: "linear-gradient(135deg, #7c3aed, #2563eb)",
               border: "none",
-              boxShadow: "0 4px 20px rgba(124,58,237,0.3)",
-              transition: "transform 0.2s ease, box-shadow 0.2s ease",
-            }}
-            onMouseEnter={e => {
-              e.currentTarget.style.transform = "translateY(-1px)";
-              e.currentTarget.style.boxShadow = "0 6px 24px rgba(124,58,237,0.4)";
-            }}
-            onMouseLeave={e => {
-              e.currentTarget.style.transform = "none";
-              e.currentTarget.style.boxShadow = "0 4px 20px rgba(124,58,237,0.3)";
             }}
           >
             {loading ? <Loader2 size={18} className="animate-spin" /> : <Play size={18} />}
@@ -564,35 +754,84 @@ function ResearchTab({ onSessionStart, activeSessionId, activeTopic, onClearSess
         </div>
       </div>
 
-      {/* Pipeline steps */}
+      {/* System Architecture & Methodology Flowchart */}
       {!activeSessionId && (
-        <div style={{ margin: "0 auto 24px", maxWidth: 900 }}>
-          <p style={{ textAlign: "center", color: "var(--text-muted)", fontSize: "0.8rem", marginBottom: 20 }}>How it works</p>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 10 }}>
-            {STAGES.map((s, i) => {
-              const Icon = s.icon;
-              const descs = [
-                "Breaks query into structured subtopics",
-                "DDG + arXiv + Semantic Scholar",
-                "Gemini 3.1 Flash Lite extraction",
-                "Credibility + embedding scoring",
-                "Gemini 3.5 Flash report (with fallback)",
-                "Fact-check + validation report",
-              ];
+        <div style={{ margin: "56px auto 24px", maxWidth: 900, borderTop: "1px solid var(--border-soft)", paddingTop: 48 }}>
+          <h3 style={{
+            fontSize: "1.7rem", fontWeight: 900, textAlign: "center", marginBottom: 8,
+            color: "var(--accent)", letterSpacing: "-0.02em"
+          }}>
+            System Architecture & Methodology Flowchart
+          </h3>
+          <p style={{ textAlign: "center", color: "var(--text-secondary)", fontSize: "0.92rem", marginBottom: 40, maxWidth: 640, margin: "0 auto 40px" }}>
+            Explore the multi-agent pipeline from query parsing to exports. Click on any stage below to inspect the agents, models, and algorithms driving that step.
+          </p>
+
+          <div className="diagram-container animate-fade">
+            {diagramSteps.map((step, idx) => {
+              const StepIcon = step.icon;
+              const isOpen = activeStep === idx;
               return (
-                <div key={s.key} style={{
-                  background: "var(--bg-surface)", border: "1px solid var(--border)",
-                  borderRadius: "var(--radius-lg)", padding: "16px 10px", textAlign: "center",
-                }}>
-                  <div style={{
-                    width: 36, height: 36, borderRadius: 10,
-                    background: "var(--bg-elevated)", display: "flex",
-                    alignItems: "center", justifyContent: "center", margin: "0 auto 10px",
-                  }}>
-                    <Icon size={16} color="var(--accent-light)" />
+                <div key={idx} style={{ display: "flex", flexDirection: "column" }}>
+                  <div
+                    className={`diagram-step ${isOpen ? "active" : ""}`}
+                    onClick={() => setActiveStep(isOpen ? null : idx)}
+                  >
+                    <div className="diagram-badge">{step.num}</div>
+                    <div className="diagram-icon-wrapper">
+                      <StepIcon size={18} />
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: "0.98rem", fontWeight: 700, color: "var(--text-primary)" }}>{step.title}</div>
+                      <div style={{ fontSize: "0.78rem", color: "var(--text-secondary)", marginTop: 2 }}>{step.subtitle}</div>
+                    </div>
+                    <span style={{
+                      fontSize: "0.7rem", fontWeight: 700, textTransform: "uppercase",
+                      color: "var(--text-secondary)", border: "1px solid var(--border-soft)",
+                      padding: "3px 8px", borderRadius: 4, background: "rgba(0,0,0,0.25)", fontFamily: "monospace"
+                    }}>
+                      {step.engine.split(" ")[0]}
+                    </span>
                   </div>
-                  <div style={{ fontSize: "0.8rem", fontWeight: 700, marginBottom: 4 }}>{s.label}</div>
-                  <div style={{ fontSize: "0.68rem", color: "var(--text-muted)" }}>{descs[i]}</div>
+
+                  {isOpen && (
+                    <div className="diagram-detail animate-fade">
+                      <div style={{ display: "flex", gap: 16, flexDirection: "column" }}>
+                        <div>
+                          <span style={{ fontSize: "0.72rem", color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 700, display: "block", marginBottom: 4, letterSpacing: "0.02em" }}>
+                            General Concept (Non-IT Friendly)
+                          </span>
+                          <p style={{ color: "var(--text-primary)", fontSize: "0.88rem", margin: 0, lineHeight: 1.5 }}>
+                            {step.desc}
+                          </p>
+                        </div>
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+                          <div>
+                            <span style={{ fontSize: "0.72rem", color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 700, display: "block", marginBottom: 4, letterSpacing: "0.02em" }}>
+                              Why it matters
+                            </span>
+                            <p style={{ color: "var(--text-secondary)", fontSize: "0.84rem", margin: 0, lineHeight: 1.45 }}>
+                              {step.why}
+                            </p>
+                          </div>
+                          <div>
+                            <span style={{ fontSize: "0.72rem", color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 700, display: "block", marginBottom: 4, letterSpacing: "0.02em" }}>
+                              Underlying Engine / Model
+                            </span>
+                            <span className="badge badge-accent" style={{ fontSize: "0.75rem", fontWeight: 700, display: "inline-flex", padding: "4px 10px" }}>
+                              {step.engine}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {idx < diagramSteps.length - 1 && (
+                    <div className="diagram-arrow-container">
+                      <div className="diagram-arrow-line" />
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -615,6 +854,20 @@ function ResearchTab({ onSessionStart, activeSessionId, activeTopic, onClearSess
 }
 
 // ─── History Tab ─────────────────────────────────────────────────────────────
+const FILTER_LABELS: Record<string, string> = {
+  all: "All Sessions",
+  complete: "Completed",
+  running: "In Progress",
+  error: "Failed",
+};
+
+const FILTER_ICONS: Record<string, React.ReactNode> = {
+  all: <History size={12} />,
+  complete: <CheckCheck size={12} />,
+  running: <Loader2 size={12} />,
+  error: <XCircle size={12} />,
+};
+
 function HistoryTab({ onView }: { onView: (sessionId: string) => void }) {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [filter, setFilter] = useState<"all" | "complete" | "running" | "error">("all");
@@ -633,12 +886,23 @@ function HistoryTab({ onView }: { onView: (sessionId: string) => void }) {
 
   useEffect(() => { load(); }, [load]);
 
+  const isRunningStatus = (status: string) =>
+    ["running", "planning", "searching", "extracting", "synthesizing", "validating"].includes(status);
+
   const shown = filter === "all" ? sessions : sessions.filter(s => {
-    if (filter === "running") {
-      return ["running", "planning", "searching", "extracting", "synthesizing", "validating"].includes(s.status);
-    }
-    return s.status === filter;
+    if (filter === "running") return isRunningStatus(s.status);
+    if (filter === "complete") return s.status === "complete";
+    if (filter === "error") return s.status === "error";
+    return true;
   });
+
+  // Counts for badges
+  const counts = {
+    all: sessions.length,
+    complete: sessions.filter(s => s.status === "complete").length,
+    running: sessions.filter(s => isRunningStatus(s.status)).length,
+    error: sessions.filter(s => s.status === "error").length,
+  };
 
   const handleDelete = async (id: string) => {
     if (!confirm("Delete this session?")) return;
@@ -679,76 +943,137 @@ function HistoryTab({ onView }: { onView: (sessionId: string) => void }) {
 
   return (
     <div>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
-        <h2 style={{ fontSize: "1.3rem", fontWeight: 700 }}>Research History</h2>
-        <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-          {/* Import JSON button */}
-          <button className="btn btn-secondary btn-sm" onClick={() => fileInputRef.current?.click()} style={{ gap: 5 }}>
+      {/* Page header */}
+      <div style={{
+        marginBottom: 28,
+        paddingBottom: 24,
+        borderBottom: "1px solid var(--border-soft)"
+      }}>
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16 }}>
+          <div>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
+              <div style={{
+                width: 32, height: 32, borderRadius: 8,
+                background: "rgba(96, 165, 250, 0.1)",
+                border: "1px solid rgba(96, 165, 250, 0.2)",
+                display: "flex", alignItems: "center", justifyContent: "center",
+              }}>
+                <History size={16} color="var(--accent)" />
+              </div>
+              <h2 style={{ fontSize: "1.4rem", fontWeight: 800, letterSpacing: "-0.02em" }}>Research History</h2>
+            </div>
+            <p style={{ fontSize: "0.85rem", color: "var(--text-muted)", margin: 0 }}>
+              All your past and active research sessions — {sessions.length} total
+            </p>
+          </div>
+          <button className="btn btn-secondary btn-sm" onClick={() => fileInputRef.current?.click()} style={{ gap: 5, flexShrink: 0 }}>
             <Download size={13} style={{ transform: "rotate(180deg)" }} /> Import Session
           </button>
-          <input
-            type="file"
-            ref={fileInputRef}
-            onChange={handleImport}
-            accept=".json"
-            style={{ display: "none" }}
-          />
-          <div style={{ display: "flex", gap: 6 }}>
-            {(["all", "complete", "running", "error"] as const).map(f => (
+          <input type="file" ref={fileInputRef} onChange={handleImport} accept=".json" style={{ display: "none" }} />
+        </div>
+
+        {/* Filter tabs */}
+        <div style={{ display: "flex", gap: 6, marginTop: 20 }}>
+          {(["all", "complete", "running", "error"] as const).map(f => {
+            const isActive = filter === f;
+            const filterColors: Record<string, string> = {
+              all: "var(--accent)",
+              complete: "#4ade80",
+              running: "#fbbf24",
+              error: "#f87171",
+            };
+            const accentColor = filterColors[f];
+            return (
               <button
                 key={f}
                 onClick={() => setFilter(f)}
-                className={`btn btn-sm ${filter === f ? "btn-primary" : "btn-secondary"}`}
+                style={{
+                  display: "inline-flex", alignItems: "center", gap: 6,
+                  padding: "7px 14px", borderRadius: 8,
+                  border: isActive ? `1px solid ${accentColor}50` : "1px solid var(--border-soft)",
+                  background: isActive ? `${accentColor}12` : "var(--bg-surface)",
+                  color: isActive ? accentColor : "var(--text-secondary)",
+                  fontSize: "0.82rem", fontWeight: isActive ? 700 : 500,
+                  cursor: "pointer", transition: "all 0.2s ease", fontFamily: "inherit",
+                }}
               >
-                {f.charAt(0).toUpperCase() + f.slice(1)}
+                {FILTER_ICONS[f]}
+                {FILTER_LABELS[f]}
+                <span style={{
+                  background: isActive ? `${accentColor}20` : "rgba(255,255,255,0.04)",
+                  color: isActive ? accentColor : "var(--text-muted)",
+                  borderRadius: 10, padding: "1px 7px", fontSize: "0.72rem", fontWeight: 700,
+                }}>
+                  {counts[f]}
+                </span>
               </button>
-            ))}
-          </div>
+            );
+          })}
+          <button
+            className="btn btn-ghost btn-sm"
+            onClick={load}
+            style={{ marginLeft: "auto" }}
+            title="Refresh"
+          >
+            <RefreshCw size={13} />
+          </button>
         </div>
       </div>
 
       {loading ? (
         <div style={{ textAlign: "center", padding: 48, color: "var(--text-muted)" }}>
-          <Loader2 size={24} className="animate-spin" style={{ margin: "0 auto" }} />
+          <Loader2 size={24} className="animate-spin" style={{ margin: "0 auto 12px", color: "var(--accent)" }} />
+          <p style={{ fontSize: "0.85rem" }}>Loading sessions…</p>
         </div>
       ) : shown.length === 0 ? (
-        <div style={{ textAlign: "center", padding: 64, color: "var(--text-muted)" }}>
-          <BookOpen size={32} style={{ margin: "0 auto 12px", opacity: .3 }} />
-          <p>No sessions found.</p>
+        <div style={{
+          textAlign: "center", padding: "56px 24px",
+          background: "var(--bg-surface)", borderRadius: "var(--radius-lg)",
+          border: "1px dashed var(--border)",
+        }}>
+          <BookOpen size={36} style={{ margin: "0 auto 14px", opacity: .2, color: "var(--accent)" }} />
+          <p style={{ color: "var(--text-muted)", fontWeight: 500 }}>
+            {filter === "all" ? "No sessions yet. Start a research run!" : `No ${FILTER_LABELS[filter].toLowerCase()} sessions.`}
+          </p>
+          {filter !== "all" && (
+            <button className="btn btn-ghost btn-sm" onClick={() => setFilter("all")} style={{ marginTop: 10 }}>
+              View all sessions
+            </button>
+          )}
         </div>
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {shown.map(s => (
             <div key={s.id} className="card" style={{ padding: "14px 20px" }}>
               <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: "0.92rem", fontWeight: 600, marginBottom: 4, color: "var(--text-primary)" }}>
+                  <div style={{ fontSize: "0.92rem", fontWeight: 600, marginBottom: 6, color: "var(--text-primary)", lineHeight: 1.4 }}>
                     {s.topic}
                   </div>
-                  <div style={{ display: "flex", gap: 16, fontSize: "0.75rem", color: "var(--text-secondary)" }}>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 12, fontSize: "0.75rem", color: "var(--text-secondary)" }}>
                     <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
                       <Clock size={11} /> {new Date(s.created_at).toLocaleString()}
                     </span>
-                    {s.confidence && (
+                    {(s.confidence ?? 0) > 0 && (
                       <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                        <Zap size={11} /> Confidence: {Math.round(s.confidence * 100)}%
+                        <Zap size={11} color="var(--accent)" /> {Math.round((s.confidence ?? 0) * 100)}% confidence
                       </span>
                     )}
-                    {s.findings > 0 && <span>{s.findings} findings</span>}
-                    {s.sources > 0 && <span>{s.sources} sources</span>}
+                    {s.findings > 0 && <span style={{ display: "flex", alignItems: "center", gap: 4 }}><Microscope size={11} /> {s.findings} findings</span>}
+                    {s.sources > 0 && <span style={{ display: "flex", alignItems: "center", gap: 4 }}><BookOpen size={11} /> {s.sources} sources</span>}
                   </div>
                 </div>
                 <div style={{ display: "flex", gap: 6, alignItems: "center", flexShrink: 0 }}>
                   <StatusPill status={s.status} />
                   {s.status === "complete" && (
                     <button className="btn btn-secondary btn-sm" onClick={() => onView(s.id)}>
-                      <ArrowRight size={13} /> View
+                      <ArrowRight size={13} /> View Report
                     </button>
                   )}
-                  <button className="btn btn-secondary btn-sm" onClick={() => handleContinue(s.id)}>
+                  <button className="btn btn-secondary btn-sm" onClick={() => handleContinue(s.id)} title="Continue research">
                     <RefreshCw size={13} />
                   </button>
-                  <button className="btn btn-danger btn-sm" onClick={() => handleDelete(s.id)}>
+                  <button className="btn btn-danger btn-sm" onClick={() => handleDelete(s.id)} title="Delete session">
                     <Trash2 size={13} />
                   </button>
                 </div>
@@ -822,35 +1147,53 @@ function ViewerTab({ initialSessionId }: { initialSessionId?: string }) {
 
   return (
     <div>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
-        <h2 style={{ fontSize: "1.3rem", fontWeight: 700 }}>Report Viewer</h2>
-        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-          {/* Import JSON button */}
-          <button className="btn btn-secondary btn-sm" onClick={() => fileInputRef.current?.click()} style={{ gap: 5 }}>
-            <Download size={13} style={{ transform: "rotate(180deg)" }} /> Import Report
-          </button>
-          <input
-            type="file"
-            ref={fileInputRef}
-            onChange={handleImport}
-            accept=".json"
-            style={{ display: "none" }}
-          />
-          <select
-            value={selectedId}
-            onChange={e => setSelectedId(e.target.value)}
-            style={{
-              background: "var(--bg-surface)", border: "1px solid var(--border)",
-              color: "var(--text-primary)", padding: "7px 12px", borderRadius: "var(--radius)",
-              fontSize: "0.85rem", fontFamily: "inherit", cursor: "pointer", maxWidth: 420,
-            }}
-          >
-            {sessions.map(s => (
-              <option key={s.id} value={s.id}>
-                {s.topic.slice(0, 55)} — {new Date(s.created_at).toLocaleDateString()}
-              </option>
-            ))}
-          </select>
+      {/* Page header */}
+      <div style={{
+        marginBottom: 28,
+        paddingBottom: 24,
+        borderBottom: "1px solid var(--border-soft)"
+      }}>
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
+          <div>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
+              <div style={{
+                width: 32, height: 32, borderRadius: 8,
+                background: "rgba(59, 130, 246, 0.1)",
+                border: "1px solid rgba(59, 130, 246, 0.2)",
+                display: "flex", alignItems: "center", justifyContent: "center",
+              }}>
+                <FileText size={16} color="var(--accent)" />
+              </div>
+              <h2 style={{ fontSize: "1.4rem", fontWeight: 800, letterSpacing: "-0.02em" }}>Report Viewer</h2>
+            </div>
+            <p style={{ fontSize: "0.85rem", color: "var(--text-muted)", margin: 0 }}>
+              {sessions.length === 0 ? "No completed reports yet" : `${sessions.length} completed report${sessions.length !== 1 ? "s" : ""} available`}
+            </p>
+          </div>
+          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+            <button className="btn btn-secondary btn-sm" onClick={() => fileInputRef.current?.click()} style={{ gap: 5 }}>
+              <Download size={13} style={{ transform: "rotate(180deg)" }} /> Import Report
+            </button>
+            <input type="file" ref={fileInputRef} onChange={handleImport} accept=".json" style={{ display: "none" }} />
+            {sessions.length > 0 && (
+              <select
+                value={selectedId}
+                onChange={e => setSelectedId(e.target.value)}
+                style={{
+                  background: "var(--bg-surface)", border: "1px solid var(--border)",
+                  color: "var(--text-primary)", padding: "8px 14px", borderRadius: "var(--radius)",
+                  fontSize: "0.85rem", fontFamily: "inherit", cursor: "pointer", maxWidth: 420,
+                  outline: "none",
+                }}
+              >
+                {sessions.map(s => (
+                  <option key={s.id} value={s.id}>
+                    {s.topic.slice(0, 55)} — {new Date(s.created_at).toLocaleDateString()}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
         </div>
       </div>
 
@@ -877,7 +1220,7 @@ function ViewerTab({ initialSessionId }: { initialSessionId?: string }) {
 
           {/* Export */}
           <div className="card" style={{ marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <span style={{ fontSize: "0.85rem", color: "var(--text-secondary)" }}>Export this report</span>
+            <span style={{ fontSize: "0.86rem", color: "var(--text-secondary)", fontWeight: 500 }}>Export this report</span>
             <ExportButtons sessionId={selectedId} report={report} />
           </div>
 
@@ -889,11 +1232,11 @@ function ViewerTab({ initialSessionId }: { initialSessionId?: string }) {
                 style={{
                   display: "flex", alignItems: "center", gap: 6, background: "none",
                   border: "none", color: "var(--text-secondary)", cursor: "pointer",
-                  fontSize: "0.82rem", fontWeight: 500, width: "100%",
+                  fontSize: "0.86rem", fontWeight: 600, width: "100%", outline: "none"
                 }}
               >
-                {evalOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                🔬 LLM Evaluation — {report.fact_checks?.length ?? 0} claims fact-checked
+                {evalOpen ? <ChevronUp size={14} color="var(--accent)" /> : <ChevronDown size={14} color="var(--accent)" />}
+                🔬 LLM Evaluation Report — {report.fact_checks?.length ?? 0} claims fact-checked
               </button>
               {evalOpen && (
                 <FactCheckPanel factChecks={report.fact_checks ?? []} critique={report.critique ?? ""} />
@@ -949,35 +1292,39 @@ export default function App() {
     setTab("viewer");
   };
 
-
-
   const TABS = [
     { key: "research" as Tab, icon: FlaskConical, label: "Research" },
     { key: "history"  as Tab, icon: History,      label: "History" },
     { key: "viewer"   as Tab, icon: FileText,      label: "Reports" },
   ];
 
+  const activeThemeClass = 
+    tab === "history" ? "theme-history" 
+    : tab === "viewer" ? "theme-viewer" 
+    : activeSessionId ? "theme-live" 
+    : "theme-research";
+
   return (
-    <div style={{ minHeight: "100vh", background: "var(--bg-base)", display: "flex", flexDirection: "column" }}>
+    <div className={activeThemeClass} style={{ minHeight: "100vh", background: "var(--bg-base)", display: "flex", flexDirection: "column" }}>
       {/* Nav */}
       <nav style={{
-        borderBottom: "1px solid rgba(124, 58, 237, 0.2)", padding: "0 24px",
-        background: "rgba(17, 19, 24, 0.8)",
+        borderBottom: "1px solid var(--border)", padding: "0 24px",
+        background: "rgba(10, 11, 13, 0.85)",
         position: "sticky", top: 0, zIndex: 100,
         backdropFilter: "blur(12px)",
-        boxShadow: "0 4px 30px rgba(0, 0, 0, 0.2)",
+        boxShadow: "0 4px 30px rgba(0, 0, 0, 0.3)",
       }}>
         <div style={{ maxWidth: 1100, margin: "0 auto", display: "flex", alignItems: "center", height: 56 }}>
           {/* Logo */}
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginRight: 40 }}>
             <div style={{
               width: 30, height: 30, borderRadius: 8,
-              background: "linear-gradient(135deg, #7c3aed, #2563eb)",
+              background: "linear-gradient(135deg, var(--accent), var(--accent-light))",
               display: "flex", alignItems: "center", justifyContent: "center",
             }}>
-              <Sparkles size={14} color="#fff" />
+              <Sparkles size={14} color="#000000" />
             </div>
-            <span style={{ fontWeight: 700, fontSize: "0.95rem", letterSpacing: "-0.01em" }}>ScholarNode AI</span>
+            <span style={{ fontWeight: 800, fontSize: "0.98rem", letterSpacing: "-0.01em" }}>ScholarNode AI</span>
           </div>
 
           {/* Tabs */}
@@ -990,19 +1337,19 @@ export default function App() {
                   onClick={() => setTab(t.key)}
                   style={{
                     display: "flex", alignItems: "center", gap: 6, padding: "8px 14px",
-                    background: tab === t.key ? "var(--bg-elevated)" : "none",
-                    border: tab === t.key ? "1px solid var(--border)" : "1px solid transparent",
-                    borderRadius: "var(--radius)", color: tab === t.key ? "var(--text-primary)" : "var(--text-secondary)",
-                    cursor: "pointer", fontSize: "0.85rem", fontFamily: "inherit", fontWeight: tab === t.key ? 600 : 400,
-                    transition: "all .15s ease",
+                    background: tab === t.key ? "var(--accent-glow)" : "none",
+                    border: tab === t.key ? "1px solid var(--accent-muted)" : "1px solid transparent",
+                    borderRadius: "var(--radius)", color: tab === t.key ? "var(--accent)" : "var(--text-secondary)",
+                    cursor: "pointer", fontSize: "0.85rem", fontFamily: "inherit", fontWeight: tab === t.key ? 700 : 500,
+                    transition: "all 0.15s ease",
                   }}
                 >
                   <Icon size={14} />
                   {t.label}
                   {t.key === "history" && sessions.length > 0 && (
                     <span style={{
-                      background: "var(--bg-hover)", borderRadius: 10,
-                      padding: "1px 6px", fontSize: "0.68rem", color: "var(--text-muted)",
+                      background: "rgba(255, 255, 255, 0.05)", borderRadius: 10,
+                      padding: "1px 6px", fontSize: "0.68rem", color: "var(--text-secondary)", marginLeft: 2
                     }}>{sessions.length}</span>
                   )}
                 </button>
@@ -1015,9 +1362,9 @@ export default function App() {
             {healthy === null ? (
               <span style={{ color: "var(--text-muted)" }}>Checking…</span>
             ) : healthy ? (
-              <><Wifi size={13} color="#4ade80" /><span style={{ color: "#4ade80" }}>API Online</span></>
+              <><Wifi size={13} color="var(--accent)" /><span style={{ color: "var(--accent)", fontWeight: 600 }}>API Online</span></>
             ) : (
-              <><WifiOff size={13} color="#f87171" /><span style={{ color: "#f87171" }}>API Offline</span></>
+              <><WifiOff size={13} color="#f87171" /><span style={{ color: "#f87171", fontWeight: 600 }}>API Offline</span></>
             )}
           </div>
         </div>
@@ -1036,11 +1383,9 @@ export default function App() {
               display: "flex", alignItems: "center", gap: 8,
             }}>
               <WifiOff size={14} />
-              API is offline. Run: <code style={{ background: "var(--bg-elevated)", padding: "2px 6px", borderRadius: 4 }}>uvicorn api.server:app --reload</code>
+              API is offline. Run: <code style={{ background: "var(--bg-elevated)", padding: "2px 6px", borderRadius: 4, color: "#f87171", border: "1px solid rgba(248,113,113,.15)" }}>uvicorn api.server:app --reload</code>
             </div>
           )}
-
-
 
           <div style={{ paddingTop: 24 }}>
             {tab === "research" && <ResearchTab
