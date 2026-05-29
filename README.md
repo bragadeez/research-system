@@ -1,102 +1,38 @@
-# 🔬 Autonomous Research AI
+# 🎓 ScholarNode AI
 
-> A multi-agent AI system that takes any research question and produces a fully cited, fact-checked research report — automatically. Zero cost, no GPU required.
+> A premium, multi-agent AI research pipeline that transforms any query into a fully cited, structured, and fact-checked research report in minutes. Built for 100% free cloud operation using Google's Gemini models with automatic key rotation and fallback capability.
 
-[![Python](https://img.shields.io/badge/Python-3.10+-blue)](https://python.org)
-[![License: MIT](https://img.shields.io/badge/License-MIT-green)](LICENSE)
-
----
-
-## What does it do?
-
-You type a question like *"What are the latest advances in mRNA cancer vaccines?"* and the system:
-
-1. **Plans** the research — breaks it into focused sub-tasks
-2. **Searches** the web, arXiv, Semantic Scholar, and Wikipedia automatically
-3. **Extracts** factual claims from every source using an AI model
-4. **Ranks** sources by credibility, topic relevance, and source type
-5. **Writes** a structured Markdown report with inline citations
-6. **Fact-checks** the report and gives it a confidence score
-
-The whole process takes **3–8 minutes** depending on topic complexity. You get a Word document and Markdown you can download.
+ScholarNode AI features a **React + Vite + TypeScript** dashboard, real-time progress visualization via WebSockets, SQLite database persistence, and flexible export/import options (Word, Markdown, and Session JSON).
 
 ---
 
-## Quick Start (5 minutes)
+## 🚀 Key Features
 
-### Step 1 — Get a free Gemini API key
-
-Go to **https://aistudio.google.com/app/apikey** → Create API key → Copy it.
-
-Free tier limits: 1,500 requests/day for Gemini 2.0 Flash, 500/day for 2.5 Flash. Plenty for research.
-
-### Step 2 — Install Ollama (for local AI extraction)
-
-| OS | Command |
-|---|---|
-| **Linux** | `curl -fsSL https://ollama.com/install.sh \| sh` |
-| **macOS** | Download from https://ollama.com/download → drag to Applications |
-| **Windows** | Download `.exe` from https://ollama.com/download → run it |
-
-Then pull a GLM model. Pick based on your hardware:
-
-```bash
-# Option A — Cloud model (zero RAM, free Ollama account needed)
-ollama signin
-ollama pull glm-5:cloud    # 744B params, runs on Ollama's servers
-
-# Option B — Local 9B model (~8GB RAM)
-ollama pull glm4
-
-# Option C — Local 30B model, best local quality (~18GB RAM)
-ollama pull glm-4.7-flash
-```
-
-### Step 3 — Configure
-
-```bash
-cd research-ai-v2
-cp .env.example .env
-```
-
-Open `.env` and set:
-```
-GEMINI_API_KEY=AIzaSy...your_key_here
-OLLAMA_MODEL=glm4          # or glm-5:cloud or glm-4.7-flash
-```
-
-### Step 4 — Install Python dependencies
-
-```bash
-python3 -m venv venv
-source venv/bin/activate      # Windows: venv\Scripts\activate
-pip install -r requirements.txt
-```
-
-### Step 5 — Run
-
-```bash
-chmod +x run.sh    # Linux/macOS only
-./run.sh
-```
-
-Open **http://localhost:8501** in your browser. Type a topic, click **Start Research**.
+* **Dual-tier Gemini Pipeline**:
+  * **High-Reasoning Tasks** (Planning, Synthesis, Critique): Handled by `gemini-3.5-flash` for high schema compliance and detailed reports.
+  * **High-Volume Tasks** (Evidence Extraction): Handled by `gemini-3.1-flash-lite` (500 RPD / 15 RPM) to absorb extensive page-scraping extraction batches.
+* **Option B Quota Fallback**: If the strict daily limit (20 RPD) of `gemini-3.5-flash` is exhausted across your keys, the backend automatically falls back to `gemini-3.1-flash-lite` without crashing the active run.
+* **API Key Rotator**: Thread-safely rotates between multiple API keys in `GEMINI_API_KEYS` to scale past single-key request limits.
+* **Multi-Source Scraping**: Searches and aggregates findings from DuckDuckGo, arXiv, Semantic Scholar, and Wikipedia.
+* **Inline Citations & Quality Audits**: Merges claims across sources using embeddings, formats proper markdown citations, and fact-checks report claims with a Critique/Critic agent.
+* **Persistent Sessions**: History and reports are saved to a local SQLite database that persists across restarts.
+* **Session Import/Export**: Save any session as a JSON data file, and import it into another ScholarNode instance to review history, inspect evaluation metrics, and download Word/Markdown documents.
 
 ---
 
-## Architecture
+## 🛠️ Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│                         Streamlit UI (port 8501)                    │
-│        Search bar · Suggestion cards · Live progress card           │
-│        Report viewer · LLM evaluation panel · Word/MD download      │
+│                       Vite + React UI (port 5173)                   │
+│        Hero Search · Suggestion Chips · WebSocket Progress Tracker  │
+│        Report Viewer · LLM Evaluation Dashboard · Import / Export    │
 └─────────────────────────┬───────────────────────────────────────────┘
-                          │  HTTP / REST
+                          │  HTTP / WebSockets
 ┌─────────────────────────▼───────────────────────────────────────────┐
 │                      FastAPI Backend (port 8000)                     │
-│          POST /api/research · GET /api/export/{id}/docx             │
-│          WebSocket /ws/{id} · POST /api/research/{id}/continue      │
+│          POST /api/research · GET /api/export/{id}/{format}         │
+│          POST /api/import   · WebSocket /ws/{id}                    │
 └─────────────────────────┬───────────────────────────────────────────┘
                           │
 ┌─────────────────────────▼───────────────────────────────────────────┐
@@ -104,292 +40,113 @@ Open **http://localhost:8501** in your browser. Type a topic, click **Start Rese
 │                                                                      │
 │  Planner → Search → Source Ranker → Extractor → Aggregator          │
 │     ↓         ↓           ↓             ↓            ↓              │
-│  Gemini    DDG +       Intent       Ollama GLM    Semantic          │
-│  2.5 Flash arXiv +    scoring       (batched)     clustering        │
-│            S2 + Wiki               + heuristic    + contradiction   │
-│               ↓                       fallback     detection        │
-│           ChromaDB ──────────────────────────────────────────────── │
-│           (vector store)                                             │
-│               ↓                                                      │
-│         Synthesiser → Critic Agent                                   │
-│         Gemini 2.5   Gemini 2.5                                      │
-│         (RAG report) (fact-check + confidence score)                 │
-│                            ↓                                         │
-│                    SQLite (history + reports)                        │
+│  Gemini    DDG, arXiv     Intent   Gemini 3.1 Lite  Semantic        │
+│  3.5/3.1   S2, Wiki      scoring     (batched)      clustering      │
+│                                                                     │
+│                                                                     │
+│         Synthesiser ──────────────────────────► Critic Agent        │
+│         Gemini 3.5 / 3.1                        Gemini 3.5 / 3.1    │
+│         (Structured draft)                      (Fact-checking)     │
+│                            │                                        │
+│                            ▼                                        │
+│                    SQLite (data/research.db)                        │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Agent-by-agent breakdown
-
-### 🧠 Planner Agent (`agents/planner_agent.py`)
-Uses **Gemini 2.5 Flash** with structured JSON output to decompose your query into 3–5 focused sub-tasks, each tagged with:
-- A specific search query (not just "research X" — actual keyword queries)
-- Source type: `academic`, `web`, `news`, `documentation`, etc.
-- Priority, difficulty, expected evidence types
-
-This is the most critical agent — bad planning cascades into bad searches.
-
-### 🔍 Search Agent (`agents/search_agent.py`)
-Routes each sub-task to the right tool based on its `source_type`:
-
-| Source type | Tool used |
-|---|---|
-| `web`, `news`, `blog` | DuckDuckGo (`ddgs` library, no key needed) |
-| `academic` | arXiv SDK + Semantic Scholar REST API (free, no key) |
-| Both | Wikipedia as supplemental context |
-
-Web results are scraped using a 3-tier extractor: trafilatura → readability → BeautifulSoup. Domain diversity is enforced (max 3 URLs per domain).
-
-### 📊 Source Ranker (`core/source_ranker.py`)
-Each source gets a `final_score` from:
-- **Topic alignment** (embedding similarity between source and research plan)
-- **Credibility** (intent-prior matrix: `.edu`/`.gov`/`arxiv.org` score higher for technical research)
-- **Query match** (capped keyword density, not inflated by repetition)
-- **Content length** (rewards substantive articles)
-
-The intent-prior matrix adjusts weights based on research type — market analysis trusts news more than academic papers, technical research is the opposite.
-
-### 🔬 Extraction Agent (`agents/extraction_agent.py`)
-**The most time-sensitive agent.** Key optimisations:
-
-**Speed fix (v2):** Instead of 1 Ollama call per paragraph (600 calls = 30 min), the agent now:
-1. Groups paragraphs into batches of 6
-2. Sends one Ollama call per batch (→ ~100 calls total)
-3. Processes all sources **concurrently** with a semaphore(4)
-4. Result: **~3–6 minutes** instead of 35+ minutes
-
-**LLM vs heuristic:** If Ollama is available, uses GLM for evidence extraction (understands negation, context, passive voice). If Ollama is offline, falls back to the heuristic keyword-matching approach automatically.
-
-Each extracted piece of evidence gets:
-- `category`: result / method / metric / limitation / comparison / trend / definition / conclusion
-- `confidence`: composite score based on source quality + claim specificity
-- `keywords`: signal terms for aggregation
-
-### 🔗 Evidence Aggregator (`core/evidence_aggregator.py`)
-Groups similar claims from different sources into clusters using:
-- **Batch embedding similarity** (BAAI/bge-small-en-v1.5 — better than all-MiniLM for scientific text)
-- **O(n) matrix clustering** (fixed from the original O(n²) approach)
-- **Contradiction detection** (flags when a cluster mixes positive and limiting statements)
-
-Each cluster becomes a `ResearchFinding` with a merged confidence score that rewards multi-source agreement.
-
-### 📝 Synthesis Agent (`agents/synthesis_agent.py`)
-Uses **Gemini 2.5 Flash** to write a structured Markdown report. The prompt includes:
-- Top findings grouped by section
-- All available citation URLs
-- Contradictions to acknowledge
-- The original thesis and audience
-
-The report follows: Executive Summary → Section analysis → Key Findings → Limitations → Conclusion → References.
-
-### ✅ Critic Agent (`agents/critic_agent.py`)
-A second **Gemini 2.5 Flash** call that independently reviews the report. It:
-1. Extracts 4–6 key factual claims
-2. Checks each against the evidence pool
-3. Assigns: `supported` / `unsupported` / `uncertain`
-4. Computes an overall **confidence score** (0–100%)
-5. Decides if another search iteration is needed
-
-If confidence < 65% and iterations remain, the pipeline automatically runs a targeted follow-up search.
-
----
-
-## Project structure
+## 📦 Project Directory Layout
 
 ```
-research-ai-v2/
-│
-├── config.py                   # All settings, loaded from .env
-├── main.py                     # CLI entry point
-├── requirements.txt
-├── run.sh                      # One-command launcher
-├── .env.example                # Template for environment variables
-│
-├── models/                     # Pydantic data models
-│   ├── research_plan.py        # ResearchPlan, SubTopicPlan, etc.
-│   ├── source.py               # RawSource, RankedSource
-│   ├── extraction.py           # ExtractedEvidence, EvidenceCategory
-│   ├── finding.py              # ResearchFinding
-│   ├── critique.py             # CritiqueResult, FactCheckResult
-│   └── state.py                # ResearchState (pipeline state object)
-│
-├── agents/                     # The 5 AI agents
-│   ├── planner_agent.py        # Gemini → structured research plan
-│   ├── search_agent.py         # DDG + arXiv + S2 + Wikipedia
-│   ├── extraction_agent.py     # Ollama GLM (batched) + heuristic fallback
-│   ├── synthesis_agent.py      # Gemini → Markdown report
-│   └── critic_agent.py         # Gemini → fact-check + confidence
-│
-├── core/                       # Shared infrastructure
-│   ├── llm_client.py           # GeminiClient + OllamaClient
-│   ├── source_ranker.py        # Intent-aware source scoring
-│   ├── evidence_aggregator.py  # Semantic clustering + finding builder
-│   └── vector_store.py         # ChromaDB wrapper (BAAI/bge embeddings)
-│
-├── tools/                      # Low-level utilities
-│   ├── search_tools.py         # DDG, arXiv, Semantic Scholar, Wikipedia
-│   ├── scraper.py              # httpx + trafilatura + readability + BS4
-│   └── normalizer.py           # Text cleaning (keeps Greek/math chars)
-│
-├── orchestrator/
-│   └── pipeline.py             # Full pipeline with retry loop
-│
-├── db/
-│   └── database.py             # SQLite: sessions, reports, progress log
-│
+scholarnode-ai/
+├── agents/                     # The AI agents coordinating stages
+│   ├── planner_agent.py        # Decomposes queries into structured subtopics
+│   ├── search_agent.py         # Performs parallel academic and web searches
+│   ├── extraction_agent.py     # Batches paragraphs for factual claim extraction
+│   ├── synthesis_agent.py      # Drafts the final report with citations
+│   └── critic_agent.py         # Fact-checks and evaluates report confidence
 ├── api/
-│   └── server.py               # FastAPI: REST + WebSocket + exports
-│
-└── frontend/
-    └── app.py                  # Streamlit UI
+│   └── server.py               # FastAPI server (lifespan startup, CORS, DOCX generation)
+├── core/
+│   ├── llm_client.py           # GeminiClient (API rotation & fallback), Groq client (optional)
+│   ├── source_ranker.py        # Intent-prior domain scoring & ranking
+│   └── evidence_aggregator.py  # Cluster evidence evidence & contradictions using embeddings
+├── db/
+│   └── database.py             # SQLite persistence layer (sessions, reports, logs)
+├── frontend/                   # React + Vite + TS Frontend
+│   ├── src/
+│   │   ├── api/client.ts       # Frontend REST client & WebSocket connectors
+│   │   ├── App.tsx             # Interactive dashboard
+│   │   ├── index.css           # Styling system
+│   │   └── main.tsx            # React application entry point
+│   ├── package.json
+│   └── vite.config.ts
+├── models/                     # Shared Pydantic data schemas
+├── tools/                      # Utilities for normalisation, scraping, and searching
+├── .env.example                # Configuration template
+├── config.py                   # Pydantic Settings management
+├── main.py                     # CLI researcher mode
+└── requirements.txt            # Python dependencies
 ```
 
 ---
 
-## Configuration reference
+## ⚡ Quick Start
 
-All settings live in `.env` (copy from `.env.example`):
-
-| Variable | Default | Description |
-|---|---|---|
-| `GEMINI_API_KEY` | *(required)* | Free key from aistudio.google.com |
-| `GEMINI_MODEL` | `gemini-2.5-flash` | Main model for planning/synthesis/critique |
-| `OLLAMA_MODEL` | `glm4` | Extraction model (`glm4`, `glm-5:cloud`, `glm-4.7-flash`) |
-| `OLLAMA_ENABLED` | `true` | Set `false` to force heuristic extraction |
-| `MAX_RAW_SOURCES` | `60` | Cap on total sources per pipeline run |
-| `MAX_ITERATIONS` | `2` | Max retry loops if confidence is low |
-| `CONFIDENCE_THRESHOLD` | `0.65` | Below this → retry with follow-up searches |
-| `EMBEDDING_MODEL` | `BAAI/bge-small-en-v1.5` | Sentence transformer for RAG + clustering |
-| `EVIDENCE_STORE_PATH` | `./data/evidence_store` | ChromaDB on-disk location |
-
----
-
-## What each model does
-
-| Model | Used for | Why |
-|---|---|---|
-| **Gemini 2.5 Flash** | Planning, Synthesis, Critique | Best reasoning quality for complex structured tasks |
-| **GLM (Ollama)** | Evidence extraction | High-volume batched calls — local = zero cost |
-| **BAAI/bge-small-en-v1.5** | Embeddings | Outperforms MiniLM on scientific text (BEIR benchmark) |
-
----
-
-## UI guide
-
-### Research tab
-- **Suggestion cards** — click any topic to prefill the search box
-- **Start Research** — runs the full pipeline
-- **Continue Research** — adds another search iteration to the latest complete session
-- **Progress card** — shows the current pipeline stage with animated indicator
-- **▶ Show live log** — expands to show every agent's real-time messages
-- **Download buttons** — Markdown (`.md`) and Word (`.docx`) after completion
-- **LLM Evaluation** — expandable panel showing fact-checks with supported/unsupported/uncertain verdicts
-
-### History tab
-- View all past sessions with confidence scores
-- Re-run any session for a new iteration
-- Delete sessions you no longer need
-
-### Report Viewer tab
-- Browse completed reports
-- **How it was evaluated** section explains the confidence score methodology
-- Fact checks table with summary statistics (supported / unsupported / uncertain counts)
-- Download as Markdown or Word from this tab
-
----
-
-## Performance guide
-
-| Scenario | Expected time | Tips |
-|---|---|---|
-| Simple factual topic | 3–5 min | Default settings work well |
-| Complex technical topic | 6–10 min | Normal |
-| Medical / scientific deep research | 8–15 min | Increase `MAX_RAW_SOURCES=80` |
-| Very slow extraction | Reduce to `MAX_RAW_SOURCES=30` | Or set `OLLAMA_ENABLED=false` for heuristic mode |
-| Low confidence score | Click "Continue Research" | Runs targeted follow-up searches |
-
-**Speed tip:** If you have a fast machine and want better quality, set `PARA_BATCH_SIZE=4` in `agents/extraction_agent.py` (more calls, more granular extraction).
-
----
-
-## CLI usage
-
+### 1. Configure the Environment
+Clone the repository and copy the environment template:
 ```bash
-source venv/bin/activate
-
-# Research a topic, print results, save to report.md
-python main.py
-
-# Edit main.py line 12 to change the topic:
-topic = "Your research question here"
+cp .env.example .env
 ```
+
+Open `.env` and insert your Gemini API Key(s):
+```env
+# Singular key
+GEMINI_API_KEY=AIzaSy...your_gemini_key
+
+# Optional: Multiple keys separated by commas for automatic rotation
+GEMINI_API_KEYS=key1,key2
+
+# Optional Search API overrides (Tavily/Serper keys)
+TAVILY_API_KEY=your_tavily_key
+```
+
+### 2. Set Up the Backend
+Create a virtual environment (Python 3.10+ recommended) and install dependencies:
+```bash
+# Set up env
+python -m venv .venv
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+
+# Install requirements
+pip install -r requirements.txt
+```
+
+Launch the FastAPI backend server:
+```bash
+uvicorn api.server:app --host 0.0.0.0 --port 8000 --reload
+```
+You can verify the backend is online by navigating to `http://localhost:8000/health`.
+
+### 3. Set Up the Frontend
+Open a new terminal window, navigate to the frontend directory, install npm packages, and run Vite:
+```bash
+cd frontend
+npm install
+npm run dev
+```
+Open **http://localhost:5173** to access the ScholarNode AI dashboard.
 
 ---
 
-## Troubleshooting
-
-**`ModuleNotFoundError`** after install:
-```bash
-pip install -r requirements.txt --upgrade
-```
-
-**Ollama not found / model not available:**
-```bash
-ollama serve          # start Ollama server
-ollama pull glm4      # pull the model
-ollama list           # verify it appears
-```
-
-**`glm-5:cloud` auth error:**
-```bash
-ollama signin         # creates free account
-ollama pull glm-5:cloud
-```
-
-**ChromaDB error on first run:**
-```bash
-rm -rf data/evidence_store/
-# Re-run — it recreates automatically
-```
-
-**Port already in use:**
-```bash
-lsof -ti:8000 | xargs kill     # Linux/macOS
-# Or change API_PORT=8001 in .env
-```
-
-**Low confidence score (< 60%):**
-- Click **Continue Research** to run more targeted follow-up searches
-- The system automatically uses the critic's suggested follow-up queries
-
-**Word (.docx) download missing:**
-```bash
-pip install python-docx
-```
+## 🧬 How to Export / Import Reports
+To transfer a report generated on one system to another:
+1. Open the report in the **Report Viewer** or **Research History** tab.
+2. Click the **JSON Data** download button. A `.json` file containing the session, report contents, and full log logs will download.
+3. On another system running ScholarNode AI, click the **Import Session** button (on the History tab) or **Import Report** button (on the Viewer tab) and select the `.json` file.
+4. The report, evaluation logs, and full agent logs will be immediately populated and editable.
 
 ---
 
-## Tech stack (all free)
-
-| Layer | Technology |
-|---|---|
-| LLM planning/synthesis | Google Gemini 2.5 Flash (free tier) |
-| LLM extraction | Ollama GLM (local) or GLM-5:cloud |
-| Web search | DuckDuckGo — no API key |
-| Academic search | arXiv + Semantic Scholar — no API key |
-| Knowledge | Wikipedia — no API key |
-| Scraping | httpx + trafilatura + readability-lxml |
-| Vector DB | ChromaDB (local, on-disk) |
-| Embeddings | sentence-transformers BAAI/bge-small-en-v1.5 |
-| Backend | FastAPI + WebSocket |
-| Frontend | Streamlit |
-| Persistence | SQLite |
-| Word export | python-docx |
-
----
-
-## License
-
-MIT — free to use, modify, and deploy for any purpose.
+## 📄 License
+This project is licensed under the MIT License — free to use, modify, and distribute.

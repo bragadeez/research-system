@@ -48,10 +48,8 @@ db/*
 !db/.gitkeep
 
 # =========================
-# Model Files (very important for ML)
+# Model Weights (ignore large files)
 # =========================
-models/*
-!models/.gitkeep
 
 *.h5
 *.pt

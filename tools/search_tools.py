@@ -67,9 +67,9 @@ def rate_limit():
     _last_ddg_call = time.time()
 
 
-# ── DuckDuckGo ────────────────────────────────────────────────────────────────
+# ── DuckDuckGo (Fallback) ─────────────────────────────────────────────────────
 
-def search_duckduckgo(query: str, max_results: int = 8) -> List[dict]:
+def _search_duckduckgo_raw(query: str, max_results: int = 8) -> List[dict]:
     """Your original function — unchanged."""
     if DDGS is None:
         logger.warning("[DDG] ddgs package not installed")
@@ -98,10 +98,88 @@ def search_duckduckgo(query: str, max_results: int = 8) -> List[dict]:
                         break
             return results
         except Exception as e:
+            if "no results" in str(e).lower():
+                logger.debug(f"[DDG] No results found for query: {query}")
+                return []
             logger.debug(f"[DDG] attempt {attempt + 1} failed: {e}")
             time.sleep(2 * (attempt + 1))
 
     return results
+
+
+# ── Tavily Search (Recommended for Agents) ────────────────────────────────────
+
+def search_tavily(query: str, max_results: int = 5) -> List[dict]:
+    from config import settings
+    if not settings.TAVILY_API_KEY:
+        return []
+    try:
+        from tavily import TavilyClient
+        client = TavilyClient(api_key=settings.TAVILY_API_KEY)
+        response = client.search(query=query, max_results=max_results, search_depth="basic")
+        results = []
+        for r in response.get("results", []):
+            results.append({
+                "title": r.get("title", ""),
+                "url": r.get("url", ""),
+                "snippet": r.get("content", ""),
+                "source": "tavily",
+            })
+        return results
+    except Exception as e:
+        logger.warning(f"[Tavily] Search failed: {e}")
+        return []
+
+
+# ── Serper.dev Google Search ──────────────────────────────────────────────────
+
+def search_serper(query: str, max_results: int = 5) -> List[dict]:
+    from config import settings
+    if not settings.SERPER_API_KEY:
+        return []
+    try:
+        import requests
+        url = "https://google.serper.dev/search"
+        payload = {"q": query, "num": max_results}
+        headers = {
+            "X-API-KEY": settings.SERPER_API_KEY,
+            "Content-Type": "application/json"
+        }
+        response = requests.post(url, json=payload, headers=headers, timeout=10)
+        if response.status_code != 200:
+            logger.warning(f"[Serper] HTTP error: {response.status_code} - {response.text}")
+            return []
+        data = response.json()
+        results = []
+        for r in data.get("organic", []):
+            results.append({
+                "title": r.get("title", ""),
+                "url": r.get("link", ""),
+                "snippet": r.get("snippet", ""),
+                "source": "serper",
+            })
+        return results
+    except Exception as e:
+        logger.warning(f"[Serper] Search failed: {e}")
+        return []
+
+
+# ── Main Web Search Entrypoint (Router) ───────────────────────────────────────
+
+def search_duckduckgo(query: str, max_results: int = 8) -> List[dict]:
+    """
+    Main web search entrypoint. Automatically routes to Tavily or Serper
+    if their respective API keys are configured, falling back to DuckDuckGo.
+    """
+    from config import settings
+    if settings.TAVILY_API_KEY:
+        logger.info(f"[Search] Using Tavily for: '{query}'")
+        return search_tavily(query, max_results)
+    elif settings.SERPER_API_KEY:
+        logger.info(f"[Search] Using Serper (Google) for: '{query}'")
+        return search_serper(query, max_results)
+    else:
+        return _search_duckduckgo_raw(query, max_results)
 
 
 # ── arXiv ─────────────────────────────────────────────────────────────────────

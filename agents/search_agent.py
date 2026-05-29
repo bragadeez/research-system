@@ -1,12 +1,15 @@
 """
 agents/search_agent.py
 
-Improvements vs original:
-  1. Academic routing: subtopics with source_type=academic → arXiv + Semantic Scholar
-  2. Wikipedia added for general context
-  3. Progress callback support for streaming UI
-  4. All original class methods preserved with same names
-  5. Pre-populated content for academic sources (no scraping needed)
+Multi-source search agent:
+  - DuckDuckGo (web)
+  - arXiv + Semantic Scholar (academic)
+  - Wikipedia (general context)
+
+Fixes applied:
+  - _make_academic_source now uses proper async locking (no race condition)
+  - Wikipedia query uses first 3 meaningful words (not just the first word)
+  - MAX_RAW_SOURCES reads from settings
 """
 from __future__ import annotations
 
@@ -18,13 +21,17 @@ from urllib.parse import urlparse
 import httpx
 from loguru import logger
 
+from config import settings
 from models.source import RawSource
 from tools.scraper import content_hash, domain_score, fetch_page, query_score
-from tools.search_tools import (
-    academic_search,
-    search_duckduckgo,
-    search_wikipedia,
-)
+from tools.search_tools import academic_search, search_duckduckgo, search_wikipedia
+
+# Common stopwords to skip when building Wikipedia query
+_WIKI_STOPWORDS = {
+    "the", "and", "for", "with", "that", "this", "from", "into", "about",
+    "impact", "analysis", "research", "study", "report", "overview", "latest",
+    "new", "advances", "findings", "recent", "current", "using", "based",
+}
 
 
 class SearchAgent:
@@ -33,21 +40,19 @@ class SearchAgent:
         self.seen_urls: set = set()
         self.seen_hash: set = set()
         self.domain_count: dict = defaultdict(int)
-        self.MAX_PER_DOMAIN = 3
-        self.MAX_RAW_SOURCES = 60
+        self.MAX_PER_DOMAIN: int = settings.MAX_PER_DOMAIN
+        self.MAX_RAW_SOURCES: int = settings.MAX_RAW_SOURCES
         self._lock = asyncio.Lock()
 
     def _reset(self):
-        """Reset state between runs."""
         self.seen_urls.clear()
         self.seen_hash.clear()
         self.domain_count.clear()
 
     def normalize_url(self, url: str) -> str:
-        url = url.split("#")[0]
-        return url.rstrip("/")
+        return url.split("#")[0].rstrip("/")
 
-    async def allow_domain(self, domain: str) -> bool:
+    async def _allow_domain(self, domain: str) -> bool:
         async with self._lock:
             if self.domain_count[domain] >= self.MAX_PER_DOMAIN:
                 return False
@@ -68,8 +73,10 @@ class SearchAgent:
             self.seen_hash.add(h)
             return True
 
-    async def process_url(self, client: httpx.AsyncClient, result: dict, subtopic: str, query: str) -> Optional[RawSource]:
-        """Process a web URL — fetch, deduplicate, score."""
+    async def process_url(
+        self, client: httpx.AsyncClient, result: dict, subtopic: str, query: str
+    ) -> Optional[RawSource]:
+        """Fetch a web URL, deduplicate, and score it."""
         url = self.normalize_url(result["url"])
         if not await self._mark_url_seen(url):
             return None
@@ -90,7 +97,7 @@ class SearchAgent:
         except Exception:
             domain = "unknown"
 
-        if not await self.allow_domain(domain):
+        if not await self._allow_domain(domain):
             return None
 
         return RawSource(
@@ -107,10 +114,13 @@ class SearchAgent:
             final_score=0.0,
         )
 
-    def _make_academic_source(self, result: dict, subtopic: str, query: str) -> Optional[RawSource]:
+    async def _make_academic_source(
+        self, result: dict, subtopic: str, query: str
+    ) -> Optional[RawSource]:
         """
-        Convert an academic search result (arXiv / Semantic Scholar / Wikipedia)
-        into a RawSource. No HTTP fetch needed — content is already in the result.
+        Convert an academic result (arXiv / Semantic Scholar / Wikipedia)
+        into a RawSource. Content is pre-populated — no HTTP fetch needed.
+        Uses async locks to prevent race conditions on shared state.
         """
         url = self.normalize_url(result.get("url", ""))
         if not url:
@@ -121,20 +131,16 @@ class SearchAgent:
             return None
 
         h = content_hash(content)
-        if h in self.seen_hash:
+        if not await self._mark_hash_seen(h):
             return None
-        self.seen_hash.add(h)
-
-        if url in self.seen_urls:
+        if not await self._mark_url_seen(url):
             return None
-        self.seen_urls.add(url)
 
         source_type = result.get("source", "academic")
-        # Academic sources get a high domain_score bonus
         d_score = {
-            "arxiv": 0.90,
+            "arxiv":            0.90,
             "semantic_scholar": 0.85,
-            "wikipedia": 0.70,
+            "wikipedia":        0.70,
         }.get(source_type, 0.75)
 
         try:
@@ -162,14 +168,19 @@ class SearchAgent:
             for st in getattr(sub, "source_types", [])
         ]
 
+    def _wiki_query(self, query: str) -> str:
+        """Extract the 3 most meaningful words from a query for Wikipedia lookup."""
+        tokens = [t for t in query.split() if t.lower() not in _WIKI_STOPWORDS and len(t) > 2]
+        return " ".join(tokens[:3]) if tokens else query.split()[0]
+
     async def run(
         self,
         plan,
         progress_callback: Optional[Callable] = None,
     ) -> List[RawSource]:
         """
-        Main search method — same signature as original plus optional callback.
-        Automatically routes academic subtopics to arXiv + Semantic Scholar.
+        Main search method — routes academic subtopics to arXiv + Semantic Scholar,
+        general subtopics to DuckDuckGo + Wikipedia.
         """
         self._reset()
         sources: List[RawSource] = []
@@ -193,14 +204,8 @@ class SearchAgent:
             )
 
             for query in sub.search_queries:
-                # Web search jobs
                 if use_web:
-                    # Expanded variants: original + context phrase + domain-specific
-                    query_variants = [
-                        query,
-                        f'"{query}"',
-                        f"{query} {plan.topic}",
-                    ]
+                    query_variants = [query, f'"{query}"', f"{query} {plan.topic}"]
                     for q in query_variants:
                         try:
                             results = await asyncio.to_thread(search_duckduckgo, q, 5)
@@ -211,53 +216,48 @@ class SearchAgent:
                         except Exception as exc:
                             logger.warning(f"[Search] DDG failed for '{q}': {exc}")
 
-                # Academic search jobs
                 if use_academic:
                     academic_jobs.append((query, sub.title))
 
-                # Wikipedia for general context
                 if not use_academic:
-                    wiki_jobs.append((query.split()[0] if query else "", sub.title, query))
+                    wiki_jobs.append((self._wiki_query(query), sub.title, query))
 
         await _notify(
             f"🔍 Searching: {len(web_url_jobs)} web URLs + "
-            f"{len(academic_jobs)} academic queries..."
+            f"{len(academic_jobs)} academic queries…"
         )
 
-        # ── 1. Fetch academic sources (no scraping needed) ────────────────
+        # ── 1. Academic sources (arXiv + Semantic Scholar) ────────────────────
         for query, subtopic in academic_jobs:
             try:
                 academic_results = await academic_search(query, max_results=4)
                 for r in academic_results:
-                    src = self._make_academic_source(r, subtopic, query)
+                    src = await self._make_academic_source(r, subtopic, query)
                     if src:
                         sources.append(src)
-                await asyncio.sleep(0.5)  # polite pause for S2 API
+                await asyncio.sleep(0.5)  # polite pause for S2 rate limits
             except Exception as exc:
                 logger.warning(f"[Search] Academic search failed for '{query}': {exc}")
 
-        # ── 2. Fetch Wikipedia context ────────────────────────────────────
-        for first_word, subtopic, query in wiki_jobs[:3]:  # cap wiki calls
+        # ── 2. Wikipedia context (capped at 3 calls) ──────────────────────────
+        for wiki_q, subtopic, query in wiki_jobs[:3]:
             try:
-                wiki_results = await asyncio.to_thread(search_wikipedia, first_word or query)
+                wiki_results = await asyncio.to_thread(search_wikipedia, wiki_q or query)
                 for r in wiki_results:
-                    src = self._make_academic_source(r, subtopic, query)
+                    src = await self._make_academic_source(r, subtopic, query)
                     if src:
                         sources.append(src)
             except Exception as exc:
-                logger.debug(f"[Search] Wikipedia failed: {exc}")
+                logger.debug(f"[Search] Wikipedia failed for '{wiki_q}': {exc}")
 
-        # ── 3. Scrape web URLs ────────────────────────────────────────────
+        # ── 3. Web scraping ───────────────────────────────────────────────────
         async with httpx.AsyncClient(timeout=20) as client:
-            tasks = [
-                self.process_url(client, r[0], r[1], r[2])
-                for r in web_url_jobs
-            ]
+            tasks = [self.process_url(client, r[0], r[1], r[2]) for r in web_url_jobs]
             results = await asyncio.gather(*tasks, return_exceptions=True)
 
         for r in results:
             if isinstance(r, Exception):
-                logger.debug(f"[Search] Fetch task error: {r}")
+                logger.debug(f"[Search] Fetch error: {r}")
                 continue
             if r:
                 sources.append(r)

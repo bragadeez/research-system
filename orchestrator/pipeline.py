@@ -26,7 +26,7 @@ from models.state import ResearchState
 
 class ResearchPipeline:
     """
-    Runs the full research pipeline.
+    Runs the full research pipeline end-to-end.
 
     Usage:
         pipeline = ResearchPipeline()
@@ -40,11 +40,11 @@ class ResearchPipeline:
         progress_callback: Optional[Callable] = None,
     ) -> ResearchState:
         """
-        Execute the research pipeline end-to-end.
+        Execute the research pipeline.
 
         Args:
             topic:             Research query string
-            session_id:        UUID string for this session (auto-generated if None)
+            session_id:        UUID for this session (auto-generated if None)
             progress_callback: async callable receiving {agent, message, data} dicts
 
         Returns:
@@ -62,18 +62,18 @@ class ResearchPipeline:
                 except Exception as e:
                     logger.debug(f"Progress callback error: {e}")
 
-        # Shared callback wrapper for agents
         async def cb(update: dict):
-            agent = update.get("agent", "system")
-            message = update.get("message", "")
-            data = update.get("data", {})
-            await notify(agent, message, data)
+            await notify(
+                update.get("agent", "system"),
+                update.get("message", ""),
+                update.get("data", {}),
+            )
 
         await notify("system", f"🚀 Starting research: {topic}")
 
-        # ── Phase 1: Plan ─────────────────────────────────────────────────
+        # ── Phase 1: Plan ─────────────────────────────────────────────────────
         state.status = "planning"
-        await notify("planner", "🧠 Building research plan...")
+        await notify("planner", "🧠 Building research plan…")
         try:
             state.plan = await planner.create_plan_async(topic)
             await notify(
@@ -88,7 +88,7 @@ class ResearchPipeline:
             await notify("planner", f"❌ Planning failed: {e}")
             return state
 
-        # ── Retry loop ────────────────────────────────────────────────────
+        # ── Retry loop ────────────────────────────────────────────────────────
         while state.iteration < settings.MAX_ITERATIONS:
             state.iteration += 1
             is_retry = state.iteration > 1
@@ -99,12 +99,11 @@ class ResearchPipeline:
                     f"🔄 Retry #{state.iteration}: running targeted follow-up search",
                 )
 
-            # ── Phase 2: Search ───────────────────────────────────────────
+            # ── Phase 2: Search ───────────────────────────────────────────────
             state.status = "searching"
-            await notify("search", f"🔍 Searching sources (iteration {state.iteration})...")
+            await notify("search", f"🔍 Searching sources (iteration {state.iteration})…")
             try:
                 raw = await search_agent.run(state.plan, progress_callback=cb)
-                # On retry: append new sources to existing ones
                 state.raw_sources.extend(raw)
                 await notify("search", f"✅ {len(state.raw_sources)} total raw sources")
             except Exception as e:
@@ -112,7 +111,7 @@ class ResearchPipeline:
                 await notify("search", f"❌ Search error: {e}")
                 break
 
-            # ── Phase 3: Rank ──────────────────────────────────────────────
+            # ── Phase 3: Rank ─────────────────────────────────────────────────
             try:
                 ranked = source_ranker.rank_sources(
                     state.raw_sources,
@@ -122,20 +121,20 @@ class ResearchPipeline:
                 state.ranked_sources = ranked
                 await notify(
                     "ranker",
-                    f"📊 Ranked {len(ranked)} sources (min_score={source_ranker.min_score})",
+                    f"📊 Ranked {len(ranked)} sources",
                 )
             except Exception as e:
                 state.add_error(f"Ranking failed: {e}")
                 state.ranked_sources = list(state.raw_sources)
                 await notify("ranker", f"⚠️ Ranking error (using unranked): {e}")
 
-            # ── Phase 4: Extract ───────────────────────────────────────────
+            # ── Phase 4: Extract ──────────────────────────────────────────────
             state.status = "extracting"
             try:
                 new_evidence = await extraction_agent.run(
                     state.plan, state.ranked_sources, progress_callback=cb
                 )
-                # Merge with existing evidence on retry (dedup by evidence_id)
+                # Merge, deduplicating by evidence_id
                 existing_ids = {e.evidence_id for e in state.evidence}
                 for ev in new_evidence:
                     if ev.evidence_id not in existing_ids:
@@ -147,13 +146,10 @@ class ResearchPipeline:
                 await notify("extraction", f"❌ Extraction error: {e}")
                 break
 
-            # ── Phase 5: Aggregate ─────────────────────────────────────────
+            # ── Phase 5: Aggregate ────────────────────────────────────────────
             try:
                 state.findings = evidence_aggregator.aggregate(state.evidence)
-                await notify(
-                    "aggregator",
-                    f"🔗 Aggregated {len(state.findings)} findings",
-                )
+                await notify("aggregator", f"🔗 Aggregated {len(state.findings)} findings")
             except Exception as e:
                 state.add_error(f"Aggregation failed: {e}")
                 await notify("aggregator", f"❌ Aggregation error: {e}")
@@ -163,7 +159,7 @@ class ResearchPipeline:
                 await notify("system", "⚠️ No findings extracted — check search quality")
                 break
 
-            # ── Phase 6: Synthesise ────────────────────────────────────────
+            # ── Phase 6: Synthesise ───────────────────────────────────────────
             state.status = "synthesizing"
             try:
                 state.report = await synthesis_agent.run(
@@ -174,7 +170,7 @@ class ResearchPipeline:
                 await notify("synthesis", f"❌ Synthesis error: {e}")
                 break
 
-            # ── Phase 7: Critique ──────────────────────────────────────────
+            # ── Phase 7: Critique ─────────────────────────────────────────────
             state.status = "validating"
             try:
                 state.critique = await critic_agent.run(
@@ -184,7 +180,7 @@ class ResearchPipeline:
                 )
             except Exception as e:
                 state.add_error(f"Critique failed: {e}")
-                state.status = "complete"   # still return what we have
+                state.status = "complete"
                 break
 
             score = state.critique.confidence_score
@@ -195,7 +191,6 @@ class ResearchPipeline:
             )
 
             if needs_retry and state.critique.improvement_queries:
-                # Inject follow-up queries as new sub-tasks for the next iteration
                 from models.research_plan import (
                     SubTopicPlan, TaskType, Priority, Depth, SourceType
                 )
@@ -224,18 +219,20 @@ class ResearchPipeline:
                             depends_on=[],
                         )
                         state.plan.subtopics.append(follow_up)
+                        logger.info(f"[Pipeline] Added follow-up subtopic: {follow_up.title}")
                     except Exception as e:
-                        logger.debug(f"Could not add follow-up subtopic: {e}")
+                        logger.warning(f"[Pipeline] Could not add follow-up subtopic: {e}")
             else:
-                break   # confidence OK or no improvement queries
+                break  # Confidence OK or no improvement queries
 
-        # ── Final ─────────────────────────────────────────────────────────
+        # ── Final ──────────────────────────────────────────────────────────────
         state.status = "complete"
         final_score = state.critique.confidence_score if state.critique else 0.0
+        report_words = len(state.report.split()) if state.report else 0
         await notify(
             "system",
             f"🎉 Research complete! Confidence: {final_score:.0%} | "
-            f"Findings: {len(state.findings)} | Words: {len(state.report.split())}",
+            f"Findings: {len(state.findings)} | Words: {report_words}",
             state.to_summary(),
         )
         return state

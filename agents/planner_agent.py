@@ -1,11 +1,8 @@
 """
 agents/planner_agent.py
 
-Improvements vs original:
-  1. Better prompt with explicit JSON schema example to prevent validation errors
-  2. Prompt includes all required ResearchPlan fields
-  3. Error message in retry includes actual validation error
-  4. Async create_plan_async() added for pipeline use
+Creates a structured ResearchPlan from a topic string.
+Uses Gemini for structured JSON output with retry logic.
 """
 from __future__ import annotations
 
@@ -20,9 +17,7 @@ from models.research_plan import (
 )
 
 
-# ── Prompt ──────────────────────────────────────────────────────────────────
-
-PLANNER_PROMPT = dedent("""
+PLANNER_PROMPT = dedent("""\
 You are a senior research strategist in an autonomous research system.
 
 Convert the topic below into a detailed, execution-ready research plan.
@@ -104,6 +99,31 @@ Rules:
 - Return ONLY the JSON — no explanation, no markdown code blocks
 """)
 
+REPAIR_PROMPT = dedent("""\
+Fix the research plan JSON for this topic.
+
+Topic: {topic}
+
+The plan MUST include ALL these fields:
+- topic, research_intent, depth, thesis, audience, complexity
+- estimated_runtime_minutes, execution (object with 4 fields)
+- core_tasks, optional_tasks, execution_order
+- sections (list), subtopics (list), contradictions_to_watch
+- source_strategy, success_criteria
+
+Enum constraints:
+- research_intent: impact_analysis|technical_research|market_analysis|comparison|trend_analysis
+- depth: quick|standard|deep
+- priority: critical|high|medium|low
+- source_types items: academic|government|industry_report|news|documentation|dataset|blog
+- task_type: research|synthesis|analysis
+
+Validation error from previous attempt:
+{error}
+
+Return ONLY valid JSON.
+""")
+
 
 class PlannerAgent:
 
@@ -115,48 +135,32 @@ class PlannerAgent:
             max_sub=settings.MAX_SUBTOPICS,
         )
 
-    def create_plan(self, topic: str) -> ResearchPlan:
-        """Synchronous plan creation — same signature as original."""
-        prompt = self.build_prompt(topic)
-
-        try:
-            plan = llm.generate_structured(prompt, ResearchPlan)
-            logger.info(
-                f"[Planner] Plan created: {len(plan.subtopics)} subtopics, "
-                f"intent={plan.research_intent.value}"
-            )
-            return plan
-
-        except Exception as e:
-            logger.warning(f"[Planner] First attempt failed: {e}. Retrying...")
-
-            repair = dedent(f"""
-Fix the research plan JSON for this topic.
-
-Topic: {topic}
-
-The plan must include ALL these fields:
-- topic, research_intent, depth, thesis, audience, complexity
-- estimated_runtime_minutes, execution (object with 4 fields)
-- core_tasks, optional_tasks, execution_order
-- sections (list), subtopics (list), contradictions_to_watch
-- source_strategy, success_criteria
-
-research_intent must be one of: impact_analysis|technical_research|market_analysis|comparison|trend_analysis
-depth must be one of: quick|standard|deep
-priority must be one of: critical|high|medium|low
-source_types items must be one of: academic|government|industry_report|news|documentation|dataset|blog
-task_type must be: research|synthesis|analysis
-
-Return ONLY valid JSON.
-""")
-            return llm.generate_structured(repair, ResearchPlan)
-
     async def create_plan_async(self, topic: str) -> ResearchPlan:
         """Async plan creation for pipeline use."""
-        return await asyncio.get_event_loop().run_in_executor(
-            None, self.create_plan, topic
-        )
+        prompt = self.build_prompt(topic)
+        last_error = ""
+
+        for attempt in range(2):
+            try:
+                if attempt == 0:
+                    plan = await llm.generate_structured_async(prompt, ResearchPlan)
+                else:
+                    repair = REPAIR_PROMPT.format(topic=topic, error=last_error[:500])
+                    plan = await llm.generate_structured_async(repair, ResearchPlan)
+
+                logger.info(
+                    f"[Planner] Plan created: {len(plan.subtopics)} subtopics, "
+                    f"intent={plan.research_intent.value}"
+                )
+                return plan
+
+            except Exception as e:
+                last_error = str(e)
+                if attempt == 0:
+                    logger.warning(f"[Planner] First attempt failed: {e}. Retrying with repair prompt…")
+                else:
+                    logger.error(f"[Planner] Both attempts failed: {e}")
+                    raise
 
 
 planner = PlannerAgent()

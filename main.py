@@ -1,97 +1,89 @@
 """
-main.py — Autonomous Research AI
+main.py — ScholarNode AI (CLI mode)
 
-Drop-in replacement for your original main.py.
-All original print statements and variable names preserved.
-Now wired to the full pipeline with synthesis + critique.
+Uses the same pipeline as the API server.
 """
 import asyncio
 
 from loguru import logger
 
-from agents.extraction_agent import extraction_agent
-from agents.planner_agent import planner
-from agents.search_agent import search_agent
-from agents.synthesis_agent import synthesis_agent
-from agents.critic_agent import critic_agent
-from core.evidence_aggregator import evidence_aggregator
-from core.source_ranker import source_ranker
+import db.database as db
+from config import settings
+from orchestrator.pipeline import pipeline
 
 
 async def main():
+    # ── Initialize database ───────────────────────────────────────────────────
+    db.init_db()
+
     # ── Change this topic to research anything ────────────────────────────────
     topic = "Latest cardiovascular research findings"
 
-    # ── Phase 1: Plan ─────────────────────────────────────────────────────────
-    print(f"\n🧠 Creating research plan for: {topic}")
-    plan = planner.create_plan(topic)
-    print(f"✅ Plan: {len(plan.subtopics)} subtopics | intent={plan.research_intent.value}")
+    print(f"\n🧠 Starting research: {topic}")
+    print("─" * 60)
 
-    # ── Phase 2: Search ───────────────────────────────────────────────────────
-    print("\n🔍 Searching sources...")
-    raw_sources = await search_agent.run(plan)
+    state = await pipeline.run(topic)
 
-    # ── Phase 3: Rank ─────────────────────────────────────────────────────────
-    ranked_sources = source_ranker.rank_sources(
-        raw_sources,
-        topic=topic,
-        plan=plan,
-    )
+    # ── Results summary ───────────────────────────────────────────────────────
+    print("\n" + "=" * 60)
+    print("RESEARCH COMPLETE")
+    print("=" * 60)
+    print(f"Status:          {state.status}")
+    print(f"Iterations:      {state.iteration}")
+    print(f"Raw sources:     {len(state.raw_sources)}")
+    print(f"Ranked sources:  {len(state.ranked_sources)}")
+    print(f"Evidence items:  {len(state.evidence)}")
+    print(f"Findings:        {len(state.findings)}")
 
-    # ── Phase 4: Extract ──────────────────────────────────────────────────────
-    print("\n🔬 Extracting evidence...")
-    evidence = await extraction_agent.run(plan, ranked_sources)
+    if state.critique:
+        print(f"Confidence:      {state.critique.confidence_score:.0%}")
 
-    # ── Phase 5: Aggregate ────────────────────────────────────────────────────
-    findings = evidence_aggregator.aggregate(evidence)
+    if state.errors:
+        print(f"\n⚠️  Errors: {len(state.errors)}")
+        for err in state.errors:
+            print(f"   • {err}")
 
-    # ── Phase 6: Synthesise ───────────────────────────────────────────────────
-    print("\n📝 Writing report...")
-    report = await synthesis_agent.run(plan, findings, ranked_sources)
-
-    # ── Phase 7: Critique ─────────────────────────────────────────────────────
-    print("\n🔍 Fact-checking...")
-    critique = await critic_agent.run(plan, report, findings, ranked_sources)
-
-    # ── Results ───────────────────────────────────────────────────────────────
-    print("\nTOTAL RAW SOURCES:", len(raw_sources))
-    print("TOTAL RANKED SOURCES:", len(ranked_sources))
-    print("TOTAL EXTRACTED EVIDENCE:", len(evidence))
-    print("TOTAL FINDINGS:", len(findings))
-    print(f"CONFIDENCE SCORE: {critique.confidence_score:.0%}")
-
-    print("\n================ TOP FINDINGS ================")
-    for i, finding in enumerate(findings[:15], start=1):
-        print("\n--------------------------------")
-        print("Finding:", i)
-        print("ID:", finding.finding_id)
-        print("Title:", finding.title)
-        print("Section:", finding.section_title)
-        print("Category:", finding.category)
-        print("Confidence:", round(finding.confidence, 3))
-        print("Support count:", finding.support_count)
-        print("Claim:", finding.representative_claim)
-        print("Summary:", finding.summary)
+    # ── Top findings ──────────────────────────────────────────────────────────
+    print("\n" + "=" * 60)
+    print("TOP FINDINGS")
+    print("=" * 60)
+    for i, finding in enumerate(state.findings[:15], start=1):
+        print(f"\n[{i}] {finding.title}")
+        print(f"    Category:   {finding.category}  |  Confidence: {finding.confidence:.0%}  |  Sources: {finding.support_count}")
+        print(f"    Claim:      {finding.representative_claim[:120]}")
         if finding.contradictions:
-            print("Contradictions:", " | ".join(finding.contradictions))
-        print("Sources:", len(finding.supporting_sources))
-        print("--------------------------------")
+            print(f"    ⚠️  {finding.contradictions[0][:100]}")
 
-    print("\n================ REPORT PREVIEW ================")
-    print(report[:1500])
-    print("...")
+    # ── Report preview ────────────────────────────────────────────────────────
+    if state.report:
+        print("\n" + "=" * 60)
+        print("REPORT PREVIEW (first 1500 chars)")
+        print("=" * 60)
+        print(state.report[:1500])
+        print("…")
 
-    print("\n================ CRITIQUE ================")
-    print(f"Confidence: {critique.confidence_score:.0%}")
-    print(f"Critique: {critique.critique}")
-    for fc in critique.fact_checks:
-        icon = "✅" if fc.verdict == "supported" else ("❌" if fc.verdict == "unsupported" else "❓")
-        print(f"  {icon} {fc.claim[:80]} → {fc.verdict}")
+    # ── Critique ──────────────────────────────────────────────────────────────
+    if state.critique:
+        print("\n" + "=" * 60)
+        print("CRITIQUE")
+        print("=" * 60)
+        print(f"Confidence: {state.critique.confidence_score:.0%}")
+        print(f"Assessment: {state.critique.critique}")
+        for fc in state.critique.fact_checks:
+            icon = "✅" if fc.verdict == "supported" else ("❌" if fc.verdict == "unsupported" else "❓")
+            print(f"  {icon} {fc.claim[:80]} → {fc.verdict}")
 
-    # Save report
-    with open("report.md", "w", encoding="utf-8") as f:
-        f.write(f"# {topic}\n\n{report}")
-    print("\n✅ Report saved to report.md")
+    # ── Save report ───────────────────────────────────────────────────────────
+    if state.report:
+        import os
+        import re
+
+        os.makedirs(settings.EXPORT_PATH, exist_ok=True)
+        slug = re.sub(r"[^\w-]", "_", topic[:50])
+        out_path = os.path.join(settings.EXPORT_PATH, f"{slug}.md")
+        with open(out_path, "w", encoding="utf-8") as f:
+            f.write(f"# {topic}\n\n{state.report}")
+        print(f"\n✅ Report saved to {out_path}")
 
 
 if __name__ == "__main__":

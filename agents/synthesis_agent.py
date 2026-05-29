@@ -4,7 +4,7 @@ agents/synthesis_agent.py
 Generates a comprehensive Markdown research report from:
   - ResearchPlan (sections, thesis, intent)
   - List[ResearchFinding] (structured evidence clusters)
-  - List[RankedSource]  (for citation URLs and titles)
+  - List[RankedSource] (for citation URLs and titles)
 """
 from __future__ import annotations
 
@@ -20,9 +20,7 @@ from models.research_plan import ResearchPlan
 from models.source import RankedSource
 
 
-# ── Prompt ──────────────────────────────────────────────────────────────────
-
-SYNTHESIS_SYSTEM = dedent("""
+SYNTHESIS_SYSTEM = dedent("""\
 You are an expert research analyst and technical writer.
 
 Write a comprehensive, well-structured research report in Markdown.
@@ -39,7 +37,7 @@ Writing rules:
 - Cite sources inline as [Author/Title](URL) whenever referencing a specific finding
 - Base claims ONLY on the provided evidence findings — do not hallucinate
 - Include specific numbers, metrics, and data when available
-- Note contradictions as trade-offs, not as errors
+- Note contradictions as trade-offs, not errors
 - Professional, objective tone
 - Aim for 900–1500 words
 - Return ONLY the Markdown report — no preamble
@@ -51,13 +49,10 @@ def _format_findings_for_prompt(
     sections: list,
     max_findings: int = 35,
 ) -> str:
-    """Format top findings grouped by section for the synthesis prompt."""
-    # Cap to avoid token overflow
     top_findings = sorted(
         findings, key=lambda f: (f.confidence, f.support_count), reverse=True
     )[:max_findings]
 
-    # Group by section_title
     section_map: dict = {}
     for f in top_findings:
         section_map.setdefault(f.section_title or "General", []).append(f)
@@ -79,7 +74,6 @@ def _format_findings_for_prompt(
 
 
 def _format_sources_for_prompt(sources: List[RankedSource], max_sources: int = 20) -> str:
-    """Build a compact citation reference block."""
     seen: set = set()
     lines = []
     for s in sorted(sources, key=lambda x: x.final_score, reverse=True):
@@ -106,7 +100,7 @@ class SynthesisAgent:
         findings_text = _format_findings_for_prompt(findings, plan.sections)
         sources_text = _format_sources_for_prompt(ranked_sources)
 
-        return dedent(f"""
+        return dedent(f"""\
 {SYNTHESIS_SYSTEM}
 
 ---
@@ -148,7 +142,7 @@ Now write the complete research report.
 
         await _notify(
             f"📝 Writing report from {len(findings)} findings and "
-            f"{len(ranked_sources)} sources..."
+            f"{len(ranked_sources)} sources…"
         )
 
         prompt = self.build_prompt(plan, findings, ranked_sources)
