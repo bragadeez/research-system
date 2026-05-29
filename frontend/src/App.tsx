@@ -9,11 +9,11 @@ import {
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import type { Session, ResearchData, ProgressEntry } from "./types";
+import type { Session, ResearchData, ProgressEntry, ChatMessage, ChatSource } from "./types";
 import {
   startResearch, getResearch, listSessions, deleteSession,
   continueResearch, checkHealth, getExportUrl, createWebSocket,
-  importResearch,
+  importResearch, chatWithReport, getChatHistory, clearChatHistory,
 } from "./api/client";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -53,32 +53,16 @@ const AGENT_COLORS: Record<string, string> = {
 // ─── Helper Components ───────────────────────────────────────────────────────
 function ConfidenceBar({ value }: { value: number }) {
   const pct = Math.round(value * 100);
-  const color = "var(--accent)";
-  const glowColor = "var(--accent-glow)";
-  const label = pct >= 85 ? "Verified" : pct >= 70 ? "Credible" : pct >= 50 ? "Moderate" : "Low Confidence";
-  
+  const label = pct >= 85 ? "Verified" : pct >= 70 ? "Credible" : pct >= 50 ? "Moderate" : "Low";
+  const labelClass = pct >= 70 ? "badge-accent" : pct >= 50 ? "badge-yellow" : "badge-red";
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 14, margin: "6px 0" }}>
-      <span style={{ fontSize: "0.8rem", color: "var(--text-secondary)", minWidth: 90, fontWeight: 600, letterSpacing: "0.02em" }}>
-        Confidence
-      </span>
-      <div style={{ flex: 1, height: 8, background: "rgba(255,255,255,0.03)", borderRadius: 6, border: "1px solid var(--border-soft)", overflow: "hidden", position: "relative" }}>
-        <div style={{
-          width: `${pct}%`, height: "100%", background: `linear-gradient(to right, #ffffff, ${color})`, borderRadius: 6,
-          boxShadow: `0 0 12px ${glowColor}`,
-          transition: "width 0.8s cubic-bezier(0.4, 0, 0.2, 1)"
-        }} />
+    <div style={{ display: "flex", alignItems: "center", gap: 12, margin: "4px 0" }}>
+      <span style={{ fontSize: "0.78rem", color: "var(--text-muted)", minWidth: 86, fontWeight: 600, letterSpacing: "0.03em", textTransform: "uppercase" }}>Confidence</span>
+      <div className="conf-bar-track">
+        <div className="conf-bar-fill" style={{ width: `${pct}%` }} />
       </div>
-      <span style={{ fontSize: "1rem", fontWeight: 800, color: "var(--text-primary)" }}>{pct}%</span>
-      <span style={{ 
-        fontSize: "0.7rem", fontWeight: 700, 
-        color: pct >= 70 ? "var(--accent)" : pct >= 50 ? "var(--yellow)" : "var(--red)", 
-        border: `1px solid ${pct >= 70 ? "var(--accent-muted)" : pct >= 50 ? "rgba(251,191,36,0.2)" : "rgba(248,113,113,0.2)"}`,
-        background: pct >= 70 ? "var(--accent-glow)" : pct >= 50 ? "rgba(251,191,36,0.05)" : "rgba(248,113,113,0.05)",
-        padding: "2px 8px", borderRadius: 4, textTransform: "uppercase" 
-      }}>
-        {label}
-      </span>
+      <span style={{ fontSize: "1.05rem", fontWeight: 900, color: "var(--text-primary)", minWidth: 42, textAlign: "right" }}>{pct}%</span>
+      <span className={`badge ${labelClass}`} style={{ textTransform: "uppercase", fontSize: "0.68rem" }}>{label}</span>
     </div>
   );
 }
@@ -86,31 +70,15 @@ function ConfidenceBar({ value }: { value: number }) {
 function StageTracker({ status }: { status: string }) {
   const activeIdx = STATUS_STAGE_INDEX[status] ?? -1;
   const isDone = status === "complete";
-  
   return (
-    <div style={{ display: "flex", gap: 8, margin: "22px 0 8px" }}>
+    <div className="stage-tracker">
       {STAGES.map((stage, i) => {
         const Icon = stage.icon;
         const done   = isDone || i < activeIdx;
         const active = i === activeIdx && !isDone;
-        
         return (
-          <div key={stage.key} style={{
-            flex: 1, textAlign: "center", padding: "12px 6px 10px",
-            borderTop: `2.5px solid ${done ? "var(--accent)" : active ? "#ffffff" : "var(--border-soft)"}`,
-            color: done ? "var(--accent)" : active ? "#ffffff" : "var(--text-muted)",
-            fontSize: "0.76rem", fontWeight: active ? 800 : 500,
-            background: active ? "var(--accent-glow)" : "transparent",
-            borderRadius: "0 0 10px 10px",
-            transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
-            boxShadow: active ? "0 4px 12px var(--accent-glow)" : "none",
-          }}>
-            <Icon size={15} style={{
-              display: "block", margin: "0 auto 6px",
-              color: done ? "var(--accent)" : active ? "#ffffff" : "var(--text-muted)",
-              transform: active ? "scale(1.12)" : "none",
-              transition: "all 0.3s ease"
-            }} className={active ? "animate-pulse" : undefined} />
+          <div key={stage.key} className={`stage-item ${done ? "done" : active ? "active" : ""}`}>
+            <Icon size={14} style={{ display: "block", margin: "0 auto 5px", transition: "all 0.3s ease", transform: active ? "scale(1.15)" : "none" }} className={active ? "animate-pulse" : undefined} />
             {stage.label}
           </div>
         );
@@ -121,16 +89,9 @@ function StageTracker({ status }: { status: string }) {
 
 function MetricCard({ label, value }: { label: string; value: string | number }) {
   return (
-    <div className="card" style={{
-      padding: "16px 20px", textAlign: "center", display: "flex", flexDirection: "column",
-      justifyContent: "center", gap: 4, borderRadius: "var(--radius)", background: "rgba(17, 18, 21, 0.4)"
-    }}>
-      <div style={{ fontSize: "1.6rem", fontWeight: 900, color: "var(--text-primary)", letterSpacing: "-0.01em" }}>
-        {value ?? "—"}
-      </div>
-      <div style={{ fontSize: "0.75rem", color: "var(--text-secondary)", fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.03em" }}>
-        {label}
-      </div>
+    <div className="metric-card">
+      <div className="metric-value">{value ?? "—"}</div>
+      <div className="metric-label">{label}</div>
     </div>
   );
 }
@@ -138,26 +99,18 @@ function MetricCard({ label, value }: { label: string; value: string | number })
 function StatusPill({ status }: { status: string }) {
   const isRunning = ["running", "planning", "searching", "extracting", "synthesizing", "validating"].includes(status);
   const displayStatus = isRunning ? "running" : status;
-
-  const cfg: Record<string, { bg: string; color: string; icon: React.ReactNode }> = {
-    complete: { bg: "var(--accent-glow)",  color: "var(--accent)", icon: <CheckCheck size={12} /> },
-    running:  { bg: "rgba(255,255,255,.03)",  color: "#ffffff", icon: <Loader2 size={12} className="animate-spin" /> },
-    error:    { bg: "rgba(248,113,113,.08)", color: "#f87171", icon: <XCircle size={12} /> },
+  const icons: Record<string, React.ReactNode> = {
+    complete: <CheckCheck size={12} />,
+    running:  <Loader2 size={12} className="animate-spin" />,
+    error:    <XCircle size={12} />,
   };
-  
-  const c = cfg[displayStatus] ?? { bg: "var(--bg-elevated)", color: "var(--text-secondary)", icon: null };
-  const label = isRunning 
-    ? (status === "running" ? "Running" : `${status.charAt(0).toUpperCase() + status.slice(1)}…`) 
+  const pillClass = displayStatus === "complete" ? "status-complete" : displayStatus === "error" ? "status-error" : "status-running";
+  const label = isRunning
+    ? (status === "running" ? "Running" : `${status.charAt(0).toUpperCase() + status.slice(1)}…`)
     : status.charAt(0).toUpperCase() + status.slice(1);
-
   return (
-    <span style={{
-      display: "inline-flex", alignItems: "center", gap: 6,
-      background: c.bg, color: c.color, border: `1px solid ${c.color}25`,
-      padding: "6px 14px", borderRadius: 24, fontSize: "0.78rem", fontWeight: 700,
-      boxShadow: isRunning ? "0 0 10px rgba(255, 255, 255, 0.02)" : "none",
-    }}>
-      {c.icon}{label}
+    <span className={`status-pill ${pillClass}`}>
+      {icons[displayStatus]}{label}
     </span>
   );
 }
@@ -180,40 +133,41 @@ function LiveLog({ entries }: { entries: ProgressEntry[] }) {
   return (
     <div className="terminal-window">
       <div className="terminal-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <div style={{ display: "flex", gap: 6 }}>
+        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
           <div className="terminal-dot red" />
           <div className="terminal-dot yellow" />
           <div className="terminal-dot green" />
         </div>
-        <span style={{ fontSize: "0.72rem", fontFamily: "'JetBrains Mono', monospace", color: "var(--text-muted)", fontWeight: 500 }}>
-          ScholarNode Pipeline Activity Logs
+        <span className="mono" style={{ fontSize: "0.7rem", color: "var(--text-muted)", fontWeight: 500, letterSpacing: "0.04em" }}>
+          PIPELINE ACTIVITY LOG
         </span>
-        <button 
+        <button
           onClick={handleCopy}
           className="btn btn-secondary btn-sm"
-          style={{ padding: "4px 8px", gap: 4, height: 22, fontSize: "0.68rem", borderRadius: 4, border: "1px solid var(--border)" }}
+          style={{ padding: "3px 10px", gap: 4, fontSize: "0.7rem" }}
         >
           {copied ? <ClipboardCheck size={11} color="var(--accent)" /> : <Copy size={11} />}
-          {copied ? "Copied" : "Copy"}
+          {copied ? "Copied!" : "Copy"}
         </button>
       </div>
       <div ref={ref} style={{
-        fontFamily: "'JetBrains Mono', monospace", fontSize: "0.76rem",
-        maxHeight: 260, overflowY: "auto", color: "#e4e4e7", display: "flex", flexDirection: "column", gap: 5, padding: "4px 0"
+        fontFamily: "'JetBrains Mono', monospace", fontSize: "0.74rem",
+        maxHeight: 260, overflowY: "auto", color: "#c9d2e0",
+        display: "flex", flexDirection: "column", gap: 4, padding: "2px 0",
+        lineHeight: 1.55,
       }}>
         {entries.length === 0 ? (
-          <div style={{ color: "var(--text-muted)", padding: "10px 0", textAlign: "center" }}>Initializing process log stream...</div>
+          <div style={{ color: "var(--text-muted)", padding: "16px 0", textAlign: "center", fontStyle: "italic" }}>Awaiting pipeline events…</div>
         ) : (
-          entries.slice(-50).map((e, i) => (
+          entries.slice(-60).map((e, i) => (
             <div key={i} style={{
-              padding: "2px 0 2px 10px", margin: 0,
-              borderLeft: `2.5px solid ${AGENT_COLORS[e.agent] ?? "var(--border-dim)"}`,
-              lineHeight: 1.5
+              padding: "2px 4px 2px 12px",
+              borderLeft: `2px solid ${AGENT_COLORS[e.agent] ?? "var(--border-dim)"}`,
             }}>
-              <span style={{ color: AGENT_COLORS[e.agent] ?? "var(--text-secondary)", fontWeight: 600, marginRight: 8, letterSpacing: "-0.01em" }}>
+              <span style={{ color: AGENT_COLORS[e.agent] ?? "var(--text-secondary)", fontWeight: 700, marginRight: 7, fontSize: "0.68rem", letterSpacing: "0.02em" }}>
                 [{e.agent.toUpperCase()}]
               </span>
-              {e.message}
+              <span style={{ color: "#b0b8c8" }}>{e.message}</span>
             </div>
           ))
         )}
@@ -337,16 +291,39 @@ function ExportButtons({ sessionId }: { sessionId: string; report?: unknown }) {
     }
   };
 
+  const btnStyle: React.CSSProperties = {
+    display: "inline-flex", alignItems: "center", gap: 5,
+    padding: "5px 12px", borderRadius: 8,
+    background: "var(--bg-elevated)", border: "1px solid var(--border)",
+    color: "var(--text-secondary)", fontSize: "0.78rem", fontWeight: 600,
+    cursor: "pointer", fontFamily: "inherit",
+    transition: "all 0.18s var(--ease-smooth)",
+  };
+  const btnHover = (e: React.MouseEvent<HTMLButtonElement>) => {
+    const b = e.currentTarget;
+    b.style.borderColor = "var(--accent-muted)";
+    b.style.color = "var(--accent)";
+    b.style.background = "var(--accent-subtle)";
+    b.style.transform = "translateY(-1px)";
+  };
+  const btnLeave = (e: React.MouseEvent<HTMLButtonElement>) => {
+    const b = e.currentTarget;
+    b.style.borderColor = "var(--border)";
+    b.style.color = "var(--text-secondary)";
+    b.style.background = "var(--bg-elevated)";
+    b.style.transform = "none";
+  };
+
   return (
-    <div style={{ display: "flex", gap: 8 }}>
-      <button className="btn btn-secondary btn-sm" onClick={() => downloadFile("md")}>
-        <Download size={13} /> Markdown
+    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+      <button style={btnStyle} onMouseEnter={btnHover} onMouseLeave={btnLeave} onClick={() => downloadFile("md")}>
+        <Download size={12} /> Markdown
       </button>
-      <button className="btn btn-secondary btn-sm" onClick={() => downloadFile("docx")}>
-        <Download size={13} /> Word (.docx)
+      <button style={btnStyle} onMouseEnter={btnHover} onMouseLeave={btnLeave} onClick={() => downloadFile("docx")}>
+        <Download size={12} /> Word
       </button>
-      <button className="btn btn-secondary btn-sm" onClick={downloadJson}>
-        <Download size={13} /> JSON Data
+      <button style={btnStyle} onMouseEnter={btnHover} onMouseLeave={btnLeave} onClick={downloadJson}>
+        <Download size={12} /> JSON
       </button>
     </div>
   );
@@ -415,18 +392,33 @@ function LiveResearchPanel({ sessionId, topic, onClear }: {
   return (
     <div className="animate-fade">
       {/* Header card */}
-      <div className="card" style={{ marginBottom: 16 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
-          <div>
-            <div style={{ fontSize: "1.1rem", fontWeight: 700, color: "var(--text-primary)" }}>{topic}</div>
-            <div style={{ fontSize: "0.76rem", color: "var(--text-muted)", marginTop: 3, fontFamily: "monospace" }}>
-              Session: {sessionId.slice(0, 8)}…
+      <div className="card" style={{ marginBottom: 16, padding: "18px 24px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: "1.12rem", fontWeight: 700, color: "var(--text-primary)", lineHeight: 1.3, marginBottom: 8 }} className="truncate">
+              {topic}
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span className="mono" style={{
+                fontSize: "0.7rem", color: "var(--text-muted)",
+                background: "rgba(255,255,255,0.04)", border: "1px solid var(--border-soft)",
+                padding: "2px 8px", borderRadius: 4,
+              }}>
+                {sessionId.slice(0, 8)}…
+              </span>
+              <StatusPill status={status} />
             </div>
           </div>
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <StatusPill status={status} />
-            <button className="btn btn-ghost btn-sm" onClick={onClear}><X size={14} /></button>
-          </div>
+          <button
+            className="btn btn-ghost btn-sm"
+            onClick={onClear}
+            title="Dismiss panel"
+            style={{ flexShrink: 0, marginLeft: 8 }}
+            onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = "rgba(248,113,113,0.08)"; (e.currentTarget as HTMLButtonElement).style.color = "var(--red)"; }}
+            onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = ""; (e.currentTarget as HTMLButtonElement).style.color = ""; }}
+          >
+            <X size={14} />
+          </button>
         </div>
         <StageTracker status={status} />
       </div>
@@ -444,19 +436,13 @@ function LiveResearchPanel({ sessionId, topic, onClear }: {
 
       {/* Live log */}
       <div className="card" style={{ marginBottom: 16 }}>
-        <button
-          onClick={() => setLogOpen(v => !v)}
-          style={{
-            display: "flex", alignItems: "center", gap: 6, background: "none",
-            border: "none", color: "var(--text-secondary)", cursor: "pointer",
-            fontSize: "0.86rem", fontWeight: 600, width: "100%", outline: "none"
-          }}
-        >
+        <button className="section-toggle" onClick={() => setLogOpen(v => !v)}>
           {logOpen ? <ChevronUp size={14} color="var(--accent)" /> : <ChevronDown size={14} color="var(--accent)" />}
-          Activity Logs ({progress.length} entries)
+          Activity Logs
+          <span style={{ marginLeft: 4, fontSize: "0.72rem", color: "var(--text-muted)", fontWeight: 500 }}>({progress.length} entries)</span>
         </button>
         {logOpen && (
-          <div style={{ marginTop: 12 }}>
+          <div style={{ marginTop: 14 }}>
             <LiveLog entries={progress} />
           </div>
         )}
@@ -465,20 +451,33 @@ function LiveResearchPanel({ sessionId, topic, onClear }: {
       {/* Complete state */}
       {status === "complete" && report && (
         <div className="animate-fade">
-          <div style={{
-            background: "var(--accent-glow)", border: "1px solid var(--accent-muted)",
-            borderRadius: "var(--radius-lg)", padding: "14px 20px",
-            display: "flex", alignItems: "center", justifyItems: "center", justifyContent: "space-between",
+        <div style={{
+            background: "linear-gradient(90deg, rgba(186,255,57,0.08) 0%, rgba(186,255,57,0.03) 100%)",
+            border: "1px solid rgba(186,255,57,0.28)",
+            borderRadius: "var(--radius-lg)", padding: "16px 22px",
+            display: "flex", alignItems: "center", justifyContent: "space-between",
             marginBottom: 16,
-            boxShadow: "0 4px 16px var(--accent-glow)"
+            boxShadow: "0 4px 24px rgba(186,255,57,0.07), inset 0 1px 0 rgba(186,255,57,0.1)",
           }}>
-            <span style={{ color: "var(--accent)", fontWeight: 700, fontSize: "0.92rem", display: "inline-flex", alignItems: "center", gap: 6 }}>
-              🎉 Research completed successfully! Confidence: {Math.round(conf * 100)}%
-            </span>
-            <div style={{ display: "flex", gap: 8 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <div style={{
+                width: 36, height: 36, borderRadius: 10, flexShrink: 0,
+                background: "rgba(186,255,57,0.1)", border: "1px solid rgba(186,255,57,0.25)",
+                display: "flex", alignItems: "center", justifyContent: "center", fontSize: "1.1rem",
+              }}>🎉</div>
+              <div>
+                <div style={{ color: "var(--accent)", fontWeight: 800, fontSize: "0.92rem" }}>
+                  Research Complete
+                </div>
+                <div style={{ color: "var(--text-secondary)", fontSize: "0.78rem", marginTop: 1 }}>
+                  Confidence score: {Math.round(conf * 100)}%
+                </div>
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
               <ExportButtons sessionId={sessionId} report={report} />
               <button className="btn btn-secondary btn-sm" onClick={() => continueResearch(sessionId).then(fetchData)}>
-                <RefreshCw size={13} /> Continue Research
+                <RefreshCw size={13} /> Continue
               </button>
             </div>
           </div>
@@ -527,13 +526,14 @@ function LiveResearchPanel({ sessionId, topic, onClear }: {
 
 // ─── Research Tab ────────────────────────────────────────────────────────────
 function ResearchTab({ onSessionStart, activeSessionId, activeTopic, onClearSession }: {
-  onSessionStart: (id: string, topic: string) => void;
+  onSessionStart: (id: string, topic: string, mode: "standard" | "heavy") => void;
   activeSessionId: string | null;
   activeTopic: string;
   onClearSession: () => void;
 }) {
   const [topic, setTopic] = useState("");
   const [loading, setLoading] = useState(false);
+  const [researchMode, setResearchMode] = useState<"standard" | "heavy">("standard");
   const [activeStep, setActiveStep] = useState<number | null>(null); // for interactive diagram
   const startingRef = useRef(false); // guard against double-click
 
@@ -542,8 +542,8 @@ function ResearchTab({ onSessionStart, activeSessionId, activeTopic, onClearSess
     startingRef.current = true;
     setLoading(true);
     try {
-      const { session_id } = await startResearch(topic.trim());
-      onSessionStart(session_id, topic.trim());
+      const { session_id } = await startResearch(topic.trim(), researchMode);
+      onSessionStart(session_id, topic.trim(), researchMode);
     } catch (e) {
       alert(`Failed to start research: ${e}`);
     } finally {
@@ -552,7 +552,89 @@ function ResearchTab({ onSessionStart, activeSessionId, activeTopic, onClearSess
     }
   };
 
-  const diagramSteps = [
+  const diagramSteps = researchMode === "heavy" ? [
+    {
+      num: 1,
+      title: "User Query Input & Intent Parsing",
+      subtitle: "Preparing session parameters and academic context",
+      icon: FileText,
+      engine: "FastAPI Endpoint Manager",
+      desc: "ScholarNode AI establishes a unique session ID in the SQLite database with the research mode flag set to Heavy, initializing parameters.",
+      why: "Allows tracking and persisting the academic research run cleanly."
+    },
+    {
+      num: 2,
+      title: "Planner Agent (Topic Deconstruction)",
+      subtitle: "Generating academic research outline",
+      icon: Brain,
+      engine: "Gemini 3.5 Flash (Planning)",
+      desc: "Deconstructs the research topic into 3 to 5 core subtopics and defines targeted scientific search terms optimized for academic indexes.",
+      why: "Ensures the search is scoped for deep literature review synthesis."
+    },
+    {
+      num: 3,
+      title: "Academic Search Agent (Parallel Literature Retrieval)",
+      subtitle: "Searching peer-reviewed open access papers",
+      icon: Search,
+      engine: "arXiv, Semantic Scholar, PMC, CORE, OpenAlex APIs",
+      desc: "Simultaneously queries five major academic search endpoints to retrieve raw research papers, including their year of publication and citation counts.",
+      why: "Bypasses standard blogs, news, and forums to fetch direct peer-reviewed scientific findings."
+    },
+    {
+      num: 4,
+      title: "Citation Impact Ranking (Citation/Year Scoring)",
+      subtitle: "Filtering by normalized citation index",
+      icon: BarChart2,
+      engine: "Formula: citations / (years_age + 1)",
+      desc: "Computes a normalized citation score for each paper. Only the top-K papers (highest scores) are passed to the next stages, filtering out low-impact publications.",
+      why: "Highlights papers with high scientific consensus and citation count relative to their publication age."
+    },
+    {
+      num: 5,
+      title: "Extraction Agent (Claim Extraction)",
+      subtitle: "Mining empirical findings and methodologies",
+      icon: Microscope,
+      engine: "Gemini 3.1 Flash-Lite",
+      desc: "Extracts primary claims, methodology statements, and empirical data points from the selected papers in parallel batches, mapping them to exact source citations.",
+      why: "Captures hard scientific facts, omitting speculation and generic text."
+    },
+    {
+      num: 6,
+      title: "Evidence Aggregator (Clustering Findings)",
+      subtitle: "Consolidating literature agreement & debates",
+      icon: PenLine,
+      engine: "In-Memory Semantic Matrix Aggregator",
+      desc: "Clusters related claims from different papers and flags contradictions or competing theories in the academic discourse.",
+      why: "Groups evidence to highlight consensus views and identify debate areas."
+    },
+    {
+      num: 7,
+      title: "Heavy Synthesis Agent (Drafting Academic Report)",
+      subtitle: "Generating formal report with gaps & bibliography",
+      icon: BookOpen,
+      engine: "Gemini 3.5 Flash (Synthesis)",
+      desc: "Drafts a comprehensive academic paper containing an Abstract, Literature Review, Consensus/Contradictions sections, Research Gaps, Novelty Suggestions, and an APA Bibliography.",
+      why: "Creates a rigorously formatted, publication-ready research document."
+    },
+    {
+      num: 8,
+      title: "Critic Agent (Line-by-Line Academic Audit)",
+      subtitle: "Validating report claims against peer-reviewed source pool",
+      icon: CheckCircle2,
+      engine: "Gemini 3.5 Flash (Auditor)",
+      desc: "Audits every claim made in the synthesis against the raw paper data. Triggers retry loops to fetch additional papers if details need verification.",
+      why: "Ensures the report contains zero hallucinations and represents high-accuracy scientific synthesis."
+    },
+    {
+      num: 9,
+      title: "Final Response & Document Exports",
+      subtitle: "Generating Markdown, PDF/Word, and JSON datasets",
+      icon: CheckCheck,
+      engine: "Office Open XML & RAG Index Ingester",
+      desc: "Saves the session state and builds a ChromaDB vector store index of the report so you can converse with it using the RAG chatbot.",
+      why: "Delivers portable document exports and prepares the instant chatbot interface."
+    }
+  ] : [
     {
       num: 1,
       title: "User Query Input & Intent Parsing",
@@ -594,8 +676,8 @@ function ResearchTab({ onSessionStart, activeSessionId, activeTopic, onClearSess
       title: "Extraction Agent (Claim Extraction)",
       subtitle: "Parsing articles into factual evidence claims",
       icon: Microscope,
-      engine: "Groq Llama 3.3 70B (High-Volume Free Tier)",
-      desc: "Processes source paragraphs using an ultra-fast LLM. It extracts atomic fact-claims, assigns truth ratings, and records exact paragraph locations for strict citation mapping.",
+      engine: "Gemini 3.1 Flash-Lite (Batch Extraction)",
+      desc: "Processes source paragraphs using Gemini in parallel batches. It extracts atomic fact-claims, assigns truth ratings, and records exact paragraph locations for strict citation mapping.",
       why: "Sifts out opinionated editorial text, marketing noise, and fluff, producing a database of clean facts."
     },
     {
@@ -638,119 +720,146 @@ function ResearchTab({ onSessionStart, activeSessionId, activeTopic, onClearSess
 
   return (
     <div>
-      {/* Hero */}
-      <div style={{ textAlign: "center", padding: "64px 0 44px", position: "relative" }}>
-        {/* Ambient background glow */}
+      {/* ── Hero ─────────────────────────────────────────────────────────── */}
+      <div style={{ textAlign: "center", padding: "68px 0 50px", position: "relative" }}>
+        {/* Multi-layer ambient glow */}
         <div style={{
-          position: "absolute", top: "5%", left: "50%", transform: "translateX(-50%)",
-          width: 320, height: 320, background: "radial-gradient(circle, rgba(186,255,57,0.06) 0%, rgba(0,0,0,0) 75%)",
-          zIndex: -1, pointerEvents: "none"
+          position: "absolute", top: 0, left: "50%", transform: "translateX(-50%)",
+          width: 500, height: 400,
+          background: "radial-gradient(ellipse at 50% 30%, rgba(186,255,57,0.07) 0%, rgba(186,255,57,0.02) 40%, transparent 70%)",
+          zIndex: 0, pointerEvents: "none",
         }} />
-        
-        <div style={{ display: "inline-flex", alignItems: "center", gap: 10, marginBottom: 24 }}>
-          <div style={{
-            width: 60, height: 60, borderRadius: 18,
-            background: "linear-gradient(135deg, var(--accent), var(--accent-light))",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            boxShadow: "0 0 35px var(--accent-glow)",
-          }}>
-            <FlaskConical size={28} color="#000000" />
-          </div>
-        </div>
-        
-        <h1 style={{
-          fontSize: "3.4rem", fontWeight: 900, letterSpacing: "-0.03em", lineHeight: 1.15, marginBottom: 16,
-          background: "linear-gradient(135deg, #ffffff 30%, var(--accent) 75%, var(--border-dim) 100%)",
-          WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text",
-        }}>
-          ScholarNode AI
-        </h1>
-        
-        <p style={{ color: "var(--text-secondary)", fontSize: "1.05rem", maxWidth: 540, margin: "0 auto 36px", lineHeight: 1.6 }}>
-          Explore the frontiers of science. Generate fully cited, validated research reports in minutes powered by Gemini's free tier with automated fallback.
-        </p>
-
-        {/* Suggestion chips */}
         <div style={{
-          display: "flex", flexWrap: "wrap", gap: 10, justifyContent: "center",
-          maxWidth: 700, margin: "0 auto 36px",
-        }}>
-          {SUGGESTIONS.map((s, i) => (
-            <button
-              key={i}
-              onClick={() => setTopic(s.text)}
-              style={{
-                background: "rgba(17, 18, 21, 0.5)",
-                border: "1px solid var(--border)",
-                borderRadius: 24, padding: "8px 18px",
-                fontSize: "0.84rem", color: "var(--text-secondary)", cursor: "pointer",
-                transition: "all .2s ease",
-                display: "flex", alignItems: "center", gap: 6, fontFamily: "inherit",
-              }}
-              onMouseEnter={e => {
-                (e.currentTarget as HTMLButtonElement).style.borderColor = "var(--accent)";
-                (e.currentTarget as HTMLButtonElement).style.color = "var(--accent)";
-                (e.currentTarget as HTMLButtonElement).style.transform = "translateY(-1px)";
-                (e.currentTarget as HTMLButtonElement).style.boxShadow = "0 4px 12px var(--accent-glow)";
-              }}
-              onMouseLeave={e => {
-                (e.currentTarget as HTMLButtonElement).style.borderColor = "var(--border)";
-                (e.currentTarget as HTMLButtonElement).style.color = "var(--text-secondary)";
-                (e.currentTarget as HTMLButtonElement).style.transform = "none";
-                (e.currentTarget as HTMLButtonElement).style.boxShadow = "none";
-              }}
-            >
-              <span>{s.icon}</span> {s.text}
-            </button>
-          ))}
+          position: "absolute", top: "20%", left: "20%",
+          width: 200, height: 200,
+          background: "radial-gradient(circle, rgba(186,255,57,0.04) 0%, transparent 70%)",
+          zIndex: 0, pointerEvents: "none", filter: "blur(20px)",
+        }} />
+
+        {/* Logo icon */}
+        <div style={{ position: "relative", zIndex: 1, marginBottom: 28 }}>
+          <div style={{
+            display: "inline-flex", alignItems: "center", justifyContent: "center",
+            width: 72, height: 72, borderRadius: 22,
+            background: "linear-gradient(135deg, rgba(186,255,57,0.15), rgba(186,255,57,0.04))",
+            border: "1px solid rgba(186,255,57,0.3)",
+            boxShadow: "0 0 40px rgba(186,255,57,0.15), inset 0 1px 0 rgba(255,255,255,0.1)",
+            animation: "borderGlow 4s ease-in-out infinite",
+          }}>
+            <FlaskConical size={30} color="var(--accent)" />
+          </div>
         </div>
 
-        {/* Input area */}
-        <div style={{ maxWidth: 680, margin: "0 auto" }}>
-          <div style={{
-            background: "var(--bg-surface)",
-            border: "1px solid var(--border)",
-            borderRadius: 16, padding: "3px",
-            boxShadow: "inset 0 2px 4px rgba(0,0,0,0.5)",
-            transition: "all 0.3s ease",
-            marginBottom: 16
-          }}
-          onFocusCapture={e => {
-            e.currentTarget.style.borderColor = "var(--accent)";
-            e.currentTarget.style.boxShadow = "0 0 16px var(--accent-glow)";
-          }}
-          onBlurCapture={e => {
-            e.currentTarget.style.borderColor = "var(--border)";
-            e.currentTarget.style.boxShadow = "inset 0 2px 4px rgba(0,0,0,0.5)";
-          }}
-          >
-            <textarea
-              value={topic}
-              onChange={e => setTopic(e.target.value)}
-              onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleStart(); } }}
-              placeholder="Enter query..."
-              rows={2}
-              style={{
-                width: "100%", padding: "14px 16px",
-                background: "transparent", border: "none",
-                borderRadius: 13, color: "var(--text-primary)",
-                fontSize: "1rem", resize: "none", fontFamily: "inherit",
-                outline: "none", lineHeight: 1.5,
-              }}
-            />
+        <div style={{ position: "relative", zIndex: 1 }}>
+          <h1 className="hero-title" style={{ marginBottom: 18 }}>ScholarNode AI</h1>
+
+          <p style={{ color: "var(--text-secondary)", fontSize: "1.08rem", maxWidth: 520, margin: "0 auto 40px", lineHeight: 1.65 }}>
+            Generate fully cited, validated research reports in minutes. Powered by a 9-step multi-agent pipeline with automated fallback.
+          </p>
+
+          {/* Suggestion chips */}
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 10, justifyContent: "center", maxWidth: 700, margin: "0 auto 36px" }}>
+            {SUGGESTIONS.map((s, i) => (
+              <button
+                key={i}
+                onClick={() => setTopic(s.text)}
+                style={{
+                  background: "rgba(255,255,255,0.025)",
+                  border: "1px solid var(--border)",
+                  borderRadius: 24, padding: "8px 18px",
+                  fontSize: "0.84rem", color: "var(--text-secondary)", cursor: "pointer",
+                  transition: "all 0.22s var(--ease-smooth)",
+                  display: "flex", alignItems: "center", gap: 7, fontFamily: "inherit",
+                }}
+                onMouseEnter={e => {
+                  const b = e.currentTarget as HTMLButtonElement;
+                  b.style.borderColor = "var(--accent-muted)";
+                  b.style.color = "var(--accent)";
+                  b.style.background = "var(--accent-subtle)";
+                  b.style.transform = "translateY(-2px)";
+                  b.style.boxShadow = "0 6px 20px var(--accent-glow)";
+                }}
+                onMouseLeave={e => {
+                  const b = e.currentTarget as HTMLButtonElement;
+                  b.style.borderColor = "var(--border)";
+                  b.style.color = "var(--text-secondary)";
+                  b.style.background = "rgba(255,255,255,0.025)";
+                  b.style.transform = "none";
+                  b.style.boxShadow = "none";
+                }}
+              >
+                <span>{s.icon}</span> {s.text}
+              </button>
+            ))}
           </div>
-          <button
-            className="btn btn-primary btn-lg btn-full"
-            onClick={handleStart}
-            disabled={!topic.trim() || loading || !!activeSessionId}
-            style={{
-              borderRadius: 14,
-              border: "none",
-            }}
-          >
-            {loading ? <Loader2 size={18} className="animate-spin" /> : <Play size={18} />}
-            {loading ? "Starting…" : activeSessionId ? "Research Running…" : "Start Research"}
-          </button>
+
+          {/* Input area */}
+          <div style={{ maxWidth: 700, margin: "0 auto" }}>
+            <div
+              className="input-wrap"
+              style={{ marginBottom: 14 }}
+            >
+              <textarea
+                value={topic}
+                onChange={e => setTopic(e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleStart(); } }}
+                placeholder="Enter your research query… e.g. CRISPR gene therapy for rare diseases"
+                rows={2}
+                className="input-field"
+              />
+            </div>
+
+            {/* Mode Selector */}
+            <div style={{ display: "flex", gap: 10, marginBottom: 16 }}>
+              {(["standard", "heavy"] as const).map(mode => (
+                <button
+                  key={mode}
+                  onClick={() => setResearchMode(mode)}
+                  style={{
+                    flex: 1, padding: "11px 14px", borderRadius: 10,
+                    border: researchMode === mode ? "1px solid var(--accent-muted)" : "1px solid var(--border-soft)",
+                    background: researchMode === mode ? "var(--accent-glow)" : "rgba(255,255,255,0.01)",
+                    color: researchMode === mode ? "var(--accent)" : "var(--text-muted)",
+                    fontSize: "0.86rem", fontWeight: researchMode === mode ? 700 : 500,
+                    cursor: "pointer", transition: "all 0.2s var(--ease-smooth)",
+                    fontFamily: "inherit",
+                    display: "flex", alignItems: "center", justifyContent: "center", gap: 7,
+                    boxShadow: researchMode === mode ? "inset 0 0 24px var(--accent-subtle)" : "none",
+                  }}
+                  onMouseEnter={e => { if (researchMode !== mode) { (e.currentTarget as HTMLButtonElement).style.borderColor = "var(--border)"; (e.currentTarget as HTMLButtonElement).style.color = "var(--text-secondary)"; } }}
+                  onMouseLeave={e => { if (researchMode !== mode) { (e.currentTarget as HTMLButtonElement).style.borderColor = "var(--border-soft)"; (e.currentTarget as HTMLButtonElement).style.color = "var(--text-muted)"; } }}
+                >
+                  {mode === "standard" ? <Zap size={14} /> : <BookOpen size={14} />}
+                  {mode === "standard" ? "Standard Research" : "Research Heavy"}
+                  {researchMode === mode && <span style={{ width: 5, height: 5, borderRadius: "50%", background: "var(--accent)", boxShadow: "0 0 6px var(--accent)", marginLeft: 2 }} />}
+                </button>
+              ))}
+            </div>
+
+            {researchMode === "heavy" && (
+              <div style={{
+                background: "rgba(186,255,57,0.03)", border: "1px solid rgba(186,255,57,0.12)",
+                borderRadius: 10, padding: "12px 16px", marginBottom: 16,
+                fontSize: "0.82rem", color: "var(--text-secondary)", lineHeight: 1.5, textAlign: "left",
+              }}>
+                <strong style={{ color: "var(--accent)", display: "block", marginBottom: 5 }}>📚 Research Heavy Mode</strong>
+                Queries academic databases (arXiv, PubMed, Semantic Scholar, CORE, OpenAlex). Ranks papers by citation-per-year impact score and produces a formal academic report with bibliography and novelty gaps.
+              </div>
+            )}
+
+            <button
+              className="btn btn-primary btn-xl btn-full"
+              onClick={handleStart}
+              disabled={!topic.trim() || loading || !!activeSessionId}
+              style={{ borderRadius: 14 }}
+            >
+              {loading ? <Loader2 size={18} className="animate-spin" /> : <Play size={18} />}
+              {loading ? "Initializing…" : activeSessionId ? "Research Running…" : "Start Research"}
+            </button>
+            <p style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginTop: 10, letterSpacing: "0.02em" }}>
+              Press <kbd>Enter</kbd> to submit · <kbd>Shift+Enter</kbd> for new line
+            </p>
+          </div>
         </div>
       </div>
 
@@ -941,136 +1050,124 @@ function HistoryTab({ onView }: { onView: (sessionId: string) => void }) {
     e.target.value = "";
   };
 
+  const filterColors: Record<string, string> = {
+    all: "var(--accent)", complete: "#4ade80", running: "#fbbf24", error: "#f87171",
+  };
+
   return (
     <div>
       {/* Page header */}
-      <div style={{
-        marginBottom: 28,
-        paddingBottom: 24,
-        borderBottom: "1px solid var(--border-soft)"
-      }}>
+      <div className="page-header">
         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16 }}>
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
-              <div style={{
-                width: 32, height: 32, borderRadius: 8,
-                background: "rgba(96, 165, 250, 0.1)",
-                border: "1px solid rgba(96, 165, 250, 0.2)",
-                display: "flex", alignItems: "center", justifyContent: "center",
-              }}>
-                <History size={16} color="var(--accent)" />
-              </div>
-              <h2 style={{ fontSize: "1.4rem", fontWeight: 800, letterSpacing: "-0.02em" }}>Research History</h2>
+              <div className="page-header-icon"><History size={16} /></div>
+              <h2 className="page-title">Research History</h2>
             </div>
-            <p style={{ fontSize: "0.85rem", color: "var(--text-muted)", margin: 0 }}>
-              All your past and active research sessions — {sessions.length} total
-            </p>
+            <p className="page-subtitle">All past and active sessions — {sessions.length} total</p>
           </div>
-          <button className="btn btn-secondary btn-sm" onClick={() => fileInputRef.current?.click()} style={{ gap: 5, flexShrink: 0 }}>
-            <Download size={13} style={{ transform: "rotate(180deg)" }} /> Import Session
-          </button>
-          <input type="file" ref={fileInputRef} onChange={handleImport} accept=".json" style={{ display: "none" }} />
+          <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+            <button className="btn btn-secondary btn-sm" onClick={load} title="Refresh">
+              <RefreshCw size={13} />
+            </button>
+            <button className="btn btn-secondary btn-sm" onClick={() => fileInputRef.current?.click()} style={{ gap: 5 }}>
+              <Download size={13} style={{ transform: "rotate(180deg)" }} /> Import
+            </button>
+            <input type="file" ref={fileInputRef} onChange={handleImport} accept=".json" style={{ display: "none" }} />
+          </div>
         </div>
 
         {/* Filter tabs */}
-        <div style={{ display: "flex", gap: 6, marginTop: 20 }}>
+        <div style={{ display: "flex", gap: 6, marginTop: 20, flexWrap: "wrap" }}>
           {(["all", "complete", "running", "error"] as const).map(f => {
             const isActive = filter === f;
-            const filterColors: Record<string, string> = {
-              all: "var(--accent)",
-              complete: "#4ade80",
-              running: "#fbbf24",
-              error: "#f87171",
-            };
-            const accentColor = filterColors[f];
+            const ac = filterColors[f];
             return (
               <button
                 key={f}
                 onClick={() => setFilter(f)}
+                className="filter-tab"
                 style={{
-                  display: "inline-flex", alignItems: "center", gap: 6,
-                  padding: "7px 14px", borderRadius: 8,
-                  border: isActive ? `1px solid ${accentColor}50` : "1px solid var(--border-soft)",
-                  background: isActive ? `${accentColor}12` : "var(--bg-surface)",
-                  color: isActive ? accentColor : "var(--text-secondary)",
-                  fontSize: "0.82rem", fontWeight: isActive ? 700 : 500,
-                  cursor: "pointer", transition: "all 0.2s ease", fontFamily: "inherit",
+                  border: isActive ? `1px solid ${ac}45` : undefined,
+                  background: isActive ? `${ac}10` : undefined,
+                  color: isActive ? ac : undefined,
+                  fontWeight: isActive ? 700 : undefined,
                 }}
               >
                 {FILTER_ICONS[f]}
                 {FILTER_LABELS[f]}
-                <span style={{
-                  background: isActive ? `${accentColor}20` : "rgba(255,255,255,0.04)",
-                  color: isActive ? accentColor : "var(--text-muted)",
-                  borderRadius: 10, padding: "1px 7px", fontSize: "0.72rem", fontWeight: 700,
-                }}>
+                <span
+                  className="filter-count"
+                  style={{
+                    background: isActive ? `${ac}18` : undefined,
+                    color: isActive ? ac : undefined,
+                  }}
+                >
                   {counts[f]}
                 </span>
               </button>
             );
           })}
-          <button
-            className="btn btn-ghost btn-sm"
-            onClick={load}
-            style={{ marginLeft: "auto" }}
-            title="Refresh"
-          >
-            <RefreshCw size={13} />
-          </button>
         </div>
       </div>
 
       {loading ? (
-        <div style={{ textAlign: "center", padding: 48, color: "var(--text-muted)" }}>
-          <Loader2 size={24} className="animate-spin" style={{ margin: "0 auto 12px", color: "var(--accent)" }} />
+        <div style={{ textAlign: "center", padding: 60, color: "var(--text-muted)" }}>
+          <Loader2 size={26} className="animate-spin" style={{ margin: "0 auto 14px", color: "var(--accent)" }} />
           <p style={{ fontSize: "0.85rem" }}>Loading sessions…</p>
         </div>
       ) : shown.length === 0 ? (
         <div style={{
-          textAlign: "center", padding: "56px 24px",
+          textAlign: "center", padding: "60px 24px",
           background: "var(--bg-surface)", borderRadius: "var(--radius-lg)",
-          border: "1px dashed var(--border)",
+          border: "1px dashed var(--border-soft)",
         }}>
-          <BookOpen size={36} style={{ margin: "0 auto 14px", opacity: .2, color: "var(--accent)" }} />
-          <p style={{ color: "var(--text-muted)", fontWeight: 500 }}>
-            {filter === "all" ? "No sessions yet. Start a research run!" : `No ${FILTER_LABELS[filter].toLowerCase()} sessions.`}
+          <BookOpen size={36} style={{ margin: "0 auto 16px", opacity: 0.15, color: "var(--accent)" }} />
+          <p style={{ color: "var(--text-muted)", fontWeight: 500, marginBottom: 12 }}>
+            {filter === "all" ? "No sessions yet — start a research run!" : `No ${FILTER_LABELS[filter].toLowerCase()} sessions.`}
           </p>
           {filter !== "all" && (
-            <button className="btn btn-ghost btn-sm" onClick={() => setFilter("all")} style={{ marginTop: 10 }}>
-              View all sessions
-            </button>
+            <button className="btn btn-ghost btn-sm" onClick={() => setFilter("all")}>View all sessions</button>
           )}
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {shown.map(s => (
-            <div key={s.id} className="card" style={{ padding: "14px 20px" }}>
+            <div key={s.id} className="history-card">
               <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: "0.92rem", fontWeight: 600, marginBottom: 6, color: "var(--text-primary)", lineHeight: 1.4 }}>
+                  <div style={{ fontSize: "0.94rem", fontWeight: 600, marginBottom: 8, color: "var(--text-primary)", lineHeight: 1.4 }} className="truncate">
                     {s.topic}
                   </div>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 12, fontSize: "0.75rem", color: "var(--text-secondary)" }}>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 10, fontSize: "0.75rem", color: "var(--text-muted)" }}>
                     <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
                       <Clock size={11} /> {new Date(s.created_at).toLocaleString()}
                     </span>
                     {(s.confidence ?? 0) > 0 && (
-                      <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                        <Zap size={11} color="var(--accent)" /> {Math.round((s.confidence ?? 0) * 100)}% confidence
+                      <span style={{ display: "flex", alignItems: "center", gap: 4, color: "var(--accent)" }}>
+                        <Zap size={11} /> {Math.round((s.confidence ?? 0) * 100)}% confidence
                       </span>
                     )}
-                    {s.findings > 0 && <span style={{ display: "flex", alignItems: "center", gap: 4 }}><Microscope size={11} /> {s.findings} findings</span>}
-                    {s.sources > 0 && <span style={{ display: "flex", alignItems: "center", gap: 4 }}><BookOpen size={11} /> {s.sources} sources</span>}
+                    {s.findings > 0 && (
+                      <span style={{ display: "flex", alignItems: "center", gap: 4 }}><Microscope size={11} /> {s.findings} findings</span>
+                    )}
+                    {s.sources > 0 && (
+                      <span style={{ display: "flex", alignItems: "center", gap: 4 }}><BookOpen size={11} /> {s.sources} sources</span>
+                    )}
                   </div>
                 </div>
                 <div style={{ display: "flex", gap: 6, alignItems: "center", flexShrink: 0 }}>
                   <StatusPill status={s.status} />
                   {s.status === "complete" && (
-                    <button className="btn btn-secondary btn-sm" onClick={() => onView(s.id)}>
-                      <ArrowRight size={13} /> View Report
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => onView(s.id)}
+                      style={{ gap: 4 }}
+                    >
+                      <ArrowRight size={13} /> View
                     </button>
                   )}
-                  <button className="btn btn-secondary btn-sm" onClick={() => handleContinue(s.id)} title="Continue research">
+                  <button className="btn btn-ghost btn-sm" onClick={() => handleContinue(s.id)} title="Continue research">
                     <RefreshCw size={13} />
                   </button>
                   <button className="btn btn-danger btn-sm" onClick={() => handleDelete(s.id)} title="Delete session">
@@ -1087,7 +1184,13 @@ function HistoryTab({ onView }: { onView: (sessionId: string) => void }) {
 }
 
 // ─── Viewer Tab ──────────────────────────────────────────────────────────────
-function ViewerTab({ initialSessionId }: { initialSessionId?: string }) {
+function ViewerTab({
+  initialSessionId,
+  onSessionChange,
+}: {
+  initialSessionId?: string;
+  onSessionChange?: (id: string) => void;
+}) {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [selectedId, setSelectedId] = useState(initialSessionId ?? "");
   const [data, setData] = useState<ResearchData | null>(null);
@@ -1114,6 +1217,12 @@ function ViewerTab({ initialSessionId }: { initialSessionId?: string }) {
     if (!selectedId) return;
     getResearch(selectedId).then(setData);
   }, [selectedId]);
+
+  useEffect(() => {
+    if (selectedId && onSessionChange) {
+      onSessionChange(selectedId);
+    }
+  }, [selectedId, onSessionChange]);
 
   const report = data?.report;
   const session = data?.session;
@@ -1148,47 +1257,31 @@ function ViewerTab({ initialSessionId }: { initialSessionId?: string }) {
   return (
     <div>
       {/* Page header */}
-      <div style={{
-        marginBottom: 28,
-        paddingBottom: 24,
-        borderBottom: "1px solid var(--border-soft)"
-      }}>
+      <div className="page-header">
         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
-              <div style={{
-                width: 32, height: 32, borderRadius: 8,
-                background: "rgba(59, 130, 246, 0.1)",
-                border: "1px solid rgba(59, 130, 246, 0.2)",
-                display: "flex", alignItems: "center", justifyContent: "center",
-              }}>
-                <FileText size={16} color="var(--accent)" />
-              </div>
-              <h2 style={{ fontSize: "1.4rem", fontWeight: 800, letterSpacing: "-0.02em" }}>Report Viewer</h2>
+              <div className="page-header-icon"><FileText size={16} /></div>
+              <h2 className="page-title">Report Viewer</h2>
             </div>
-            <p style={{ fontSize: "0.85rem", color: "var(--text-muted)", margin: 0 }}>
+            <p className="page-subtitle">
               {sessions.length === 0 ? "No completed reports yet" : `${sessions.length} completed report${sessions.length !== 1 ? "s" : ""} available`}
             </p>
           </div>
           <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
             <button className="btn btn-secondary btn-sm" onClick={() => fileInputRef.current?.click()} style={{ gap: 5 }}>
-              <Download size={13} style={{ transform: "rotate(180deg)" }} /> Import Report
+              <Download size={13} style={{ transform: "rotate(180deg)" }} /> Import
             </button>
             <input type="file" ref={fileInputRef} onChange={handleImport} accept=".json" style={{ display: "none" }} />
             {sessions.length > 0 && (
               <select
                 value={selectedId}
                 onChange={e => setSelectedId(e.target.value)}
-                style={{
-                  background: "var(--bg-surface)", border: "1px solid var(--border)",
-                  color: "var(--text-primary)", padding: "8px 14px", borderRadius: "var(--radius)",
-                  fontSize: "0.85rem", fontFamily: "inherit", cursor: "pointer", maxWidth: 420,
-                  outline: "none",
-                }}
+                className="report-select"
               >
                 {sessions.map(s => (
                   <option key={s.id} value={s.id}>
-                    {s.topic.slice(0, 55)} — {new Date(s.created_at).toLocaleDateString()}
+                    {s.topic.slice(0, 58)} — {new Date(s.created_at).toLocaleDateString()}
                   </option>
                 ))}
               </select>
@@ -1257,6 +1350,414 @@ function ViewerTab({ initialSessionId }: { initialSessionId?: string }) {
 }
 
 // ─── Root App ────────────────────────────────────────────────────────────────
+// ─── Chat RAG Panel Component ───────────────────────────────────────────────
+function ChatPanel({ sessionId }: { sessionId: string }) {
+  const [isOpen, setIsOpen]       = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [messages, setMessages]   = useState<ChatMessage[]>([]);
+  const [input, setInput]         = useState("");
+  const [loading, setLoading]     = useState(false);
+  const [sources, setSources]     = useState<ChatSource[]>([]);
+  const [showSources, setShowSources] = useState(false);
+  const chatEndRef = useRef<HTMLDivElement>(null);
+  const inputRef   = useRef<HTMLInputElement>(null);
+
+  const loadHistory = useCallback(async () => {
+    try {
+      const res = await getChatHistory(sessionId);
+      setMessages(res.history || []);
+    } catch (e) {
+      console.error("Failed to load chat history", e);
+    }
+  }, [sessionId]);
+
+  useEffect(() => { if (isOpen) { loadHistory(); setTimeout(() => inputRef.current?.focus(), 120); } }, [isOpen, loadHistory]);
+  useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
+
+  const handleSend = async () => {
+    if (!input.trim() || loading) return;
+    const userMsg = input.trim();
+    setInput("");
+    setMessages(prev => [...prev, { role: "user", content: userMsg }]);
+    setLoading(true);
+    try {
+      const res = await chatWithReport(sessionId, userMsg);
+      setMessages(prev => [...prev, { role: "assistant", content: res.answer }]);
+      setSources(res.sources || []);
+      if (res.sources?.length > 0) setShowSources(true);
+    } catch (e) {
+      setMessages(prev => [...prev, { role: "assistant", content: `Error generating response: ${e}` }]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleClear = async () => {
+    if (!confirm("Clear chat history?")) return;
+    try {
+      await clearChatHistory(sessionId);
+      setMessages([]);
+      setSources([]);
+      setShowSources(false);
+    } catch (e) {
+      alert(`Failed to clear: ${e}`);
+    }
+  };
+
+  // ── Collapsed FAB ─────────────────────────────────────────────────────────
+  if (!isOpen) {
+    return (
+      <button
+        onClick={() => setIsOpen(true)}
+        title="Chat with Report"
+        style={{
+          position: "fixed", bottom: 28, right: 28,
+          width: 58, height: 58, borderRadius: "50%",
+          background: "linear-gradient(135deg, var(--accent), var(--accent-light))",
+          border: "2px solid rgba(186,255,57,0.35)",
+          color: "#000", cursor: "pointer",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          boxShadow: "0 6px 28px rgba(0,0,0,0.5), 0 0 24px var(--accent-glow)",
+          zIndex: 9999,
+          transition: "transform 0.25s cubic-bezier(.34,1.56,.64,1), box-shadow 0.25s ease",
+        }}
+        onMouseEnter={e => {
+          e.currentTarget.style.transform = "scale(1.12)";
+          e.currentTarget.style.boxShadow = "0 8px 36px rgba(0,0,0,0.6), 0 0 36px var(--accent-muted)";
+        }}
+        onMouseLeave={e => {
+          e.currentTarget.style.transform = "none";
+          e.currentTarget.style.boxShadow = "0 6px 28px rgba(0,0,0,0.5), 0 0 24px var(--accent-glow)";
+        }}
+      >
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+        </svg>
+      </button>
+    );
+  }
+
+  // ── Dynamic panel dimensions ───────────────────────────────────────────────
+  const panelW = isExpanded ? "min(680px, 92vw)" : "min(400px, 92vw)";
+  const panelH = isExpanded ? "min(680px, 88vh)" : "min(540px, 88vh)";
+
+  return (
+    <div style={{
+      position: "fixed",
+      bottom: 24, right: 24,
+      width: panelW, height: panelH,
+      borderRadius: 20,
+      background: "linear-gradient(180deg, var(--bg-elevated) 0%, var(--bg-surface) 100%)",
+      border: "1px solid rgba(186,255,57,0.18)",
+      boxShadow: "0 24px 64px rgba(0,0,0,0.75), 0 0 40px rgba(186,255,57,0.06)",
+      display: "flex", flexDirection: "column", overflow: "hidden",
+      zIndex: 9999,
+      transition: "width 0.3s cubic-bezier(.4,0,.2,1), height 0.3s cubic-bezier(.4,0,.2,1)",
+    }}>
+
+      {/* ── Header ─────────────────────────────────────────────────────────── */}
+      <div style={{
+        padding: "14px 16px",
+        borderBottom: "1px solid rgba(186,255,57,0.12)",
+        background: "linear-gradient(90deg, rgba(186,255,57,0.07) 0%, rgba(0,0,0,0.3) 100%)",
+        display: "flex", justifyContent: "space-between", alignItems: "center",
+        flexShrink: 0,
+      }}>
+        {/* Title */}
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{
+            width: 9, height: 9, borderRadius: "50%",
+            background: "var(--accent)",
+            boxShadow: "0 0 8px var(--accent-muted)",
+            animation: "pulseGlow 2.5s ease-in-out infinite",
+          }} />
+          <span style={{ fontWeight: 800, fontSize: "0.92rem", letterSpacing: "0.01em" }}>Chat with Report</span>
+          <span style={{
+            fontSize: "0.65rem", fontWeight: 700, letterSpacing: "0.06em",
+            background: "rgba(186,255,57,0.12)", color: "var(--accent)",
+            border: "1px solid rgba(186,255,57,0.25)", borderRadius: 4, padding: "2px 7px",
+          }}>RAG</span>
+        </div>
+
+        {/* Controls */}
+        <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+          {/* Expand/Collapse */}
+          <button
+            onClick={() => setIsExpanded(v => !v)}
+            title={isExpanded ? "Shrink" : "Expand"}
+            className="btn btn-ghost btn-sm"
+            style={{ padding: "5px 6px", borderRadius: 8, transition: "all 0.2s ease" }}
+            onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = "rgba(186,255,57,0.08)"; (e.currentTarget as HTMLButtonElement).style.color = "var(--accent)"; }}
+            onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = "transparent"; (e.currentTarget as HTMLButtonElement).style.color = ""; }}
+          >
+            {isExpanded ? (
+              /* collapse icon */
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/>
+                <line x1="10" y1="14" x2="3" y2="21"/><line x1="21" y1="3" x2="14" y2="10"/>
+              </svg>
+            ) : (
+              /* expand icon */
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/>
+                <line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/>
+              </svg>
+            )}
+          </button>
+
+          {/* Clear */}
+          <button
+            onClick={handleClear}
+            title="Clear Chat"
+            className="btn btn-ghost btn-sm"
+            style={{ padding: "5px 6px", borderRadius: 8, transition: "all 0.2s ease" }}
+            onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = "rgba(248,113,113,0.1)"; (e.currentTarget as HTMLButtonElement).style.color = "var(--red)"; }}
+            onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = "transparent"; (e.currentTarget as HTMLButtonElement).style.color = ""; }}
+          >
+            <Trash2 size={14} />
+          </button>
+
+          {/* Close */}
+          <button
+            onClick={() => setIsOpen(false)}
+            title="Close"
+            className="btn btn-ghost btn-sm"
+            style={{ padding: "5px 6px", borderRadius: 8, transition: "all 0.2s ease" }}
+            onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = "rgba(255,255,255,0.06)"; (e.currentTarget as HTMLButtonElement).style.color = "#fff"; }}
+            onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = "transparent"; (e.currentTarget as HTMLButtonElement).style.color = ""; }}
+          >
+            <X size={15} />
+          </button>
+        </div>
+      </div>
+
+      {/* ── Messages ───────────────────────────────────────────────────────── */}
+      <div style={{ flex: 1, padding: "16px 14px", overflowY: "auto", display: "flex", flexDirection: "column", gap: 14 }}>
+        {messages.length === 0 && (
+          <div style={{ textAlign: "center", color: "var(--text-muted)", marginTop: 50, padding: "0 20px" }}>
+            <div style={{
+              width: 52, height: 52, borderRadius: "50%", margin: "0 auto 16px",
+              background: "rgba(186,255,57,0.06)", border: "1px solid rgba(186,255,57,0.15)",
+              display: "flex", alignItems: "center", justifyContent: "center", fontSize: "1.5rem",
+            }}>💬</div>
+            <p style={{ fontSize: "0.9rem", fontWeight: 600, color: "var(--text-secondary)", marginBottom: 6 }}>Chat with your Report</p>
+            <p style={{ fontSize: "0.78rem", color: "var(--text-muted)", lineHeight: 1.6 }}>
+              Ask anything about the research, findings, sources, or methodology.
+            </p>
+          </div>
+        )}
+
+        {messages.map((m, i) => (
+          <div
+            key={i}
+            style={{
+              alignSelf: m.role === "user" ? "flex-end" : "flex-start",
+              maxWidth: isExpanded ? "80%" : "88%",
+              transition: "max-width 0.3s ease",
+            }}
+          >
+            {/* Role label */}
+            <div style={{
+              fontSize: "0.65rem", fontWeight: 700, letterSpacing: "0.07em",
+              color: m.role === "user" ? "var(--accent)" : "var(--text-muted)",
+              marginBottom: 4, textAlign: m.role === "user" ? "right" : "left",
+              textTransform: "uppercase",
+            }}>
+              {m.role === "user" ? "You" : "ScholarNode AI"}
+            </div>
+
+            {/* Bubble */}
+            <div
+              style={{
+                background: m.role === "user"
+                  ? "linear-gradient(135deg, rgba(186,255,57,0.14), rgba(186,255,57,0.06))"
+                  : "rgba(255,255,255,0.025)",
+                border: m.role === "user"
+                  ? "1px solid rgba(186,255,57,0.30)"
+                  : "1px solid rgba(255,255,255,0.06)",
+                borderRadius: m.role === "user" ? "14px 14px 4px 14px" : "14px 14px 14px 4px",
+                padding: "10px 14px",
+                wordBreak: "break-word",
+                transition: "border-color 0.2s ease, box-shadow 0.2s ease",
+              }}
+              onMouseEnter={e => {
+                (e.currentTarget as HTMLDivElement).style.borderColor = m.role === "user"
+                  ? "rgba(186,255,57,0.55)" : "rgba(255,255,255,0.14)";
+                (e.currentTarget as HTMLDivElement).style.boxShadow = m.role === "user"
+                  ? "0 4px 16px rgba(186,255,57,0.08)" : "0 4px 16px rgba(0,0,0,0.4)";
+              }}
+              onMouseLeave={e => {
+                (e.currentTarget as HTMLDivElement).style.borderColor = m.role === "user"
+                  ? "rgba(186,255,57,0.30)" : "rgba(255,255,255,0.06)";
+                (e.currentTarget as HTMLDivElement).style.boxShadow = "none";
+              }}
+            >
+              {m.role === "user" ? (
+                <span style={{ fontSize: "0.86rem", color: "var(--accent)", lineHeight: 1.5 }}>{m.content}</span>
+              ) : (
+                <div className="chat-markdown">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
+                </div>
+              )}
+            </div>
+          </div>
+        ))}
+
+        {/* Typing indicator */}
+        {loading && (
+          <div style={{ alignSelf: "flex-start", display: "flex", alignItems: "center", gap: 8 }}>
+            <div style={{
+              background: "rgba(255,255,255,0.025)", border: "1px solid rgba(255,255,255,0.06)",
+              borderRadius: "14px 14px 14px 4px", padding: "10px 14px",
+              display: "flex", alignItems: "center", gap: 8,
+            }}>
+              <Loader2 size={13} className="animate-spin" color="var(--accent)" />
+              <span style={{ fontSize: "0.78rem", color: "var(--text-secondary)", letterSpacing: "0.02em" }}>
+                Thinking…
+              </span>
+            </div>
+          </div>
+        )}
+        <div ref={chatEndRef} />
+      </div>
+
+      {/* ── Sources Drawer ─────────────────────────────────────────────────── */}
+      {showSources && sources.length > 0 && (
+        <div style={{
+          borderTop: "1px solid rgba(186,255,57,0.10)",
+          background: "rgba(0,0,0,0.35)",
+          padding: "8px 14px", maxHeight: 120, overflowY: "auto", flexShrink: 0,
+        }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+            <span style={{ fontSize: "0.67rem", color: "var(--accent)", fontWeight: 800, letterSpacing: "0.08em" }}>
+              📎 RETRIEVED SOURCES
+            </span>
+            <button
+              onClick={() => setShowSources(false)}
+              style={{
+                background: "none", border: "none", color: "var(--text-muted)",
+                cursor: "pointer", fontSize: "0.7rem", padding: "2px 6px", borderRadius: 4,
+                transition: "color 0.15s ease",
+              }}
+              onMouseEnter={e => (e.currentTarget.style.color = "var(--text-primary)")}
+              onMouseLeave={e => (e.currentTarget.style.color = "var(--text-muted)")}
+            >
+              Hide
+            </button>
+          </div>
+          {sources.map((s, idx) => (
+            <div
+              key={idx}
+              style={{
+                fontSize: "0.7rem", color: "var(--text-secondary)", marginBottom: 5,
+                padding: "4px 8px", borderRadius: 6, background: "rgba(255,255,255,0.02)",
+                border: "1px solid rgba(255,255,255,0.04)",
+                textOverflow: "ellipsis", overflow: "hidden", whiteSpace: "nowrap",
+                transition: "background 0.15s ease, border-color 0.15s ease",
+                cursor: "default",
+              }}
+              onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.background = "rgba(255,255,255,0.04)"; (e.currentTarget as HTMLDivElement).style.borderColor = "rgba(186,255,57,0.15)"; }}
+              onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.background = "rgba(255,255,255,0.02)"; (e.currentTarget as HTMLDivElement).style.borderColor = "rgba(255,255,255,0.04)"; }}
+            >
+              <span style={{ color: "var(--accent)", fontWeight: 700, marginRight: 4 }}>
+                [{s.type.toUpperCase()}]
+              </span>
+              {s.url
+                ? <a href={s.url} target="_blank" rel="noreferrer" style={{ color: "var(--accent)", textDecoration: "underline" }}>{s.title}</a>
+                : <span>{s.title}</span>
+              }
+              <span style={{ color: "var(--text-muted)", marginLeft: 4 }}>— "{s.snippet}"</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ── Input Bar ──────────────────────────────────────────────────────── */}
+      <div style={{
+        padding: "10px 12px 12px",
+        borderTop: "1px solid rgba(186,255,57,0.10)",
+        background: "rgba(0,0,0,0.25)",
+        flexShrink: 0,
+      }}>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <input
+            ref={inputRef}
+            type="text"
+            value={input}
+            onChange={e => setInput(e.target.value)}
+            onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) handleSend(); }}
+            placeholder="Ask a question about the report…"
+            style={{
+              flex: 1,
+              background: "rgba(255,255,255,0.04)",
+              border: "1px solid rgba(186,255,57,0.15)",
+              borderRadius: 10,
+              padding: "9px 13px",
+              color: "var(--text-primary)",
+              fontSize: "0.85rem",
+              outline: "none",
+              fontFamily: "inherit",
+              transition: "border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease",
+            }}
+            onFocus={e => {
+              e.currentTarget.style.borderColor = "rgba(186,255,57,0.5)";
+              e.currentTarget.style.boxShadow   = "0 0 0 3px rgba(186,255,57,0.08)";
+              e.currentTarget.style.background  = "rgba(255,255,255,0.06)";
+            }}
+            onBlur={e => {
+              e.currentTarget.style.borderColor = "rgba(186,255,57,0.15)";
+              e.currentTarget.style.boxShadow   = "none";
+              e.currentTarget.style.background  = "rgba(255,255,255,0.04)";
+            }}
+          />
+          <button
+            onClick={handleSend}
+            disabled={!input.trim() || loading}
+            style={{
+              background: input.trim() && !loading
+                ? "linear-gradient(135deg, var(--accent), var(--accent-light))"
+                : "rgba(186,255,57,0.08)",
+              border: "1px solid rgba(186,255,57,0.3)",
+              borderRadius: 10,
+              padding: "9px 16px",
+              color: input.trim() && !loading ? "#000" : "var(--text-muted)",
+              fontWeight: 700,
+              fontSize: "0.84rem",
+              cursor: input.trim() && !loading ? "pointer" : "not-allowed",
+              fontFamily: "inherit",
+              display: "flex", alignItems: "center", gap: 6,
+              transition: "all 0.2s ease",
+              flexShrink: 0,
+            }}
+            onMouseEnter={e => {
+              if (input.trim() && !loading) {
+                (e.currentTarget as HTMLButtonElement).style.transform = "translateY(-1px)";
+                (e.currentTarget as HTMLButtonElement).style.boxShadow = "0 4px 16px rgba(186,255,57,0.25)";
+              }
+            }}
+            onMouseLeave={e => {
+              (e.currentTarget as HTMLButtonElement).style.transform = "none";
+              (e.currentTarget as HTMLButtonElement).style.boxShadow = "none";
+            }}
+          >
+            {loading ? <Loader2 size={14} className="animate-spin" /> : (
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
+              </svg>
+            )}
+            Send
+          </button>
+        </div>
+        {/* Keyboard hint */}
+        <div style={{ fontSize: "0.63rem", color: "var(--text-muted)", marginTop: 6, textAlign: "right", letterSpacing: "0.03em" }}>
+          Press <kbd style={{ background: "rgba(255,255,255,0.06)", border: "1px solid var(--border-soft)", padding: "1px 5px", borderRadius: 4, fontFamily: "inherit" }}>Enter</kbd> to send
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Root App ────────────────────────────────────────────────────────────────
 export default function App() {
   const [tab, setTab] = useState<Tab>("research");
   const [healthy, setHealthy] = useState<boolean | null>(null);
@@ -1276,7 +1777,7 @@ export default function App() {
     return () => clearInterval(iv);
   }, []);
 
-  const handleSessionStart = (id: string, topic: string) => {
+  const handleSessionStart = (id: string, topic: string, _mode: "standard" | "heavy") => {
     setActiveSessionId(id);
     setActiveTopic(topic);
     listSessions(100).then(({ sessions: s }) => setSessions(s)).catch(() => {});
@@ -1304,101 +1805,91 @@ export default function App() {
     : activeSessionId ? "theme-live" 
     : "theme-research";
 
+  let chatSessionId: string | null = null;
+  if (tab === "viewer" && viewerSessionId) {
+    chatSessionId = viewerSessionId;
+  } else if (tab === "research" && activeSessionId) {
+    chatSessionId = activeSessionId;
+  }
+  const targetSession = sessions.find(s => s.id === chatSessionId);
+  const showChat = targetSession && targetSession.status === "complete";
+
   return (
     <div className={activeThemeClass} style={{ minHeight: "100vh", background: "var(--bg-base)", display: "flex", flexDirection: "column" }}>
-      {/* Nav */}
-      <nav style={{
-        borderBottom: "1px solid var(--border)", padding: "0 24px",
-        background: "rgba(10, 11, 13, 0.85)",
-        position: "sticky", top: 0, zIndex: 100,
-        backdropFilter: "blur(12px)",
-        boxShadow: "0 4px 30px rgba(0, 0, 0, 0.3)",
-      }}>
-        <div style={{ maxWidth: 1100, margin: "0 auto", display: "flex", alignItems: "center", height: 56 }}>
+      {/* ── Navigation ───────────────────────────────────────────────────── */}
+      <nav className="nav-shell">
+        <div className="nav-inner">
           {/* Logo */}
-          <div style={{ display: "flex", alignItems: "center", gap: 10, marginRight: 40 }}>
-            <div style={{
-              width: 30, height: 30, borderRadius: 8,
-              background: "linear-gradient(135deg, var(--accent), var(--accent-light))",
-              display: "flex", alignItems: "center", justifyContent: "center",
-            }}>
-              <Sparkles size={14} color="#000000" />
+          <a className="nav-logo">
+            <div className="nav-logo-icon">
+              <Sparkles size={15} color="#000" />
             </div>
-            <span style={{ fontWeight: 800, fontSize: "0.98rem", letterSpacing: "-0.01em" }}>ScholarNode AI</span>
-          </div>
+            <span className="nav-logo-text">ScholarNode AI</span>
+          </a>
 
           {/* Tabs */}
-          <div style={{ display: "flex", gap: 4, flex: 1 }}>
+          <div style={{ display: "flex", gap: 2, flex: 1 }}>
             {TABS.map(t => {
               const Icon = t.icon;
               return (
                 <button
                   key={t.key}
                   onClick={() => setTab(t.key)}
-                  style={{
-                    display: "flex", alignItems: "center", gap: 6, padding: "8px 14px",
-                    background: tab === t.key ? "var(--accent-glow)" : "none",
-                    border: tab === t.key ? "1px solid var(--accent-muted)" : "1px solid transparent",
-                    borderRadius: "var(--radius)", color: tab === t.key ? "var(--accent)" : "var(--text-secondary)",
-                    cursor: "pointer", fontSize: "0.85rem", fontFamily: "inherit", fontWeight: tab === t.key ? 700 : 500,
-                    transition: "all 0.15s ease",
-                  }}
+                  className={`nav-tab ${tab === t.key ? "active" : ""}`}
                 >
                   <Icon size={14} />
                   {t.label}
                   {t.key === "history" && sessions.length > 0 && (
-                    <span style={{
-                      background: "rgba(255, 255, 255, 0.05)", borderRadius: 10,
-                      padding: "1px 6px", fontSize: "0.68rem", color: "var(--text-secondary)", marginLeft: 2
-                    }}>{sessions.length}</span>
+                    <span className="nav-badge">{sessions.length}</span>
                   )}
                 </button>
               );
             })}
           </div>
 
-          {/* API status */}
-          <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "0.78rem" }}>
+          {/* API status pill */}
+          <div className={`nav-status ${healthy === null ? "" : healthy ? "online" : "offline"}`}>
             {healthy === null ? (
-              <span style={{ color: "var(--text-muted)" }}>Checking…</span>
+              <span style={{ color: "var(--text-muted)", fontSize: "0.78rem" }}>Checking…</span>
             ) : healthy ? (
-              <><Wifi size={13} color="var(--accent)" /><span style={{ color: "var(--accent)", fontWeight: 600 }}>API Online</span></>
+              <><Wifi size={13} /><span style={{ fontWeight: 700, fontSize: "0.78rem" }}>API Online</span></>
             ) : (
-              <><WifiOff size={13} color="#f87171" /><span style={{ color: "#f87171", fontWeight: 600 }}>API Offline</span></>
+              <><WifiOff size={13} /><span style={{ fontWeight: 700, fontSize: "0.78rem" }}>Offline</span></>
             )}
           </div>
         </div>
       </nav>
 
-      {/* Content */}
-      <main style={{ flex: 1, padding: "0 24px 48px" }}>
-        <div style={{ maxWidth: 1100, margin: "0 auto" }}>
-          {/* API offline warning */}
+      {/* ── Content ──────────────────────────────────────────────────────── */}
+      <main style={{ flex: 1, padding: "0 28px 60px" }}>
+        <div style={{ maxWidth: 1140, margin: "0 auto" }}>
           {healthy === false && (
-            <div style={{
-              margin: "16px 0",
-              background: "rgba(248,113,113,.08)", border: "1px solid rgba(248,113,113,.2)",
-              borderRadius: "var(--radius)", padding: "12px 16px",
-              color: "#f87171", fontSize: "0.85rem",
-              display: "flex", alignItems: "center", gap: 8,
-            }}>
+            <div className="offline-banner">
               <WifiOff size={14} />
-              API is offline. Run: <code style={{ background: "var(--bg-elevated)", padding: "2px 6px", borderRadius: 4, color: "#f87171", border: "1px solid rgba(248,113,113,.15)" }}>uvicorn api.server:app --reload</code>
+              API is offline. Run: <code>uvicorn api.server:app --reload</code>
             </div>
           )}
-
           <div style={{ paddingTop: 24 }}>
-            {tab === "research" && <ResearchTab
-              onSessionStart={handleSessionStart}
-              activeSessionId={activeSessionId}
-              activeTopic={activeTopic}
-              onClearSession={handleClearSession}
-            />}
-            {tab === "history"  && <HistoryTab onView={handleViewSession} />}
-            {tab === "viewer"   && <ViewerTab initialSessionId={viewerSessionId} />}
+            {tab === "research" && (
+              <ResearchTab
+                onSessionStart={handleSessionStart}
+                activeSessionId={activeSessionId}
+                activeTopic={activeTopic}
+                onClearSession={handleClearSession}
+              />
+            )}
+            {tab === "history" && <HistoryTab onView={handleViewSession} />}
+            {tab === "viewer" && (
+              <ViewerTab
+                initialSessionId={viewerSessionId}
+                onSessionChange={(id) => setViewerSessionId(id)}
+              />
+            )}
           </div>
         </div>
       </main>
+
+      {showChat && chatSessionId && <ChatPanel sessionId={chatSessionId} />}
     </div>
   );
 }

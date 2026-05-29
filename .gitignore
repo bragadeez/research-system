@@ -1,56 +1,52 @@
-# =========================
-# Python
-# =========================
+# ══════════════════════════════════════════════════════════════════════════════
+# ScholarNode AI  ·  .gitignore
+# ══════════════════════════════════════════════════════════════════════════════
+
+# ── Python ─────────────────────────────────────────────────────────────────────
 __pycache__/
 *.py[cod]
 *$py.class
+*.pyo
 
-# Virtual Environments
+# ── Virtual environments ────────────────────────────────────────────────────────
 .venv/
 venv/
 env/
 ENV/
+.python-version
 
-# =========================
-# VS Code & IDEs
-# =========================
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# =========================
-# Environment Variables
-# =========================
+# ── Environment / Secrets (NEVER commit these) ─────────────────────────────────
 .env
 .env.*
+!.env.example
 
-# =========================
-# Logs & Runtime Files
-# =========================
-*.log
-*.out
-*.err
-
-# =========================
-# OS Files
-# =========================
-.DS_Store
-Thumbs.db
-
-# =========================
-# Data / Database (ignore large & sensitive)
-# =========================
+# ── Runtime data (generated at runtime — excluded for repo cleanliness) ─────────
 data/*
 !data/.gitkeep
 
-db/*
-!db/.gitkeep
+# ── SQLite databases ────────────────────────────────────────────────────────────
+*.db
+*.sqlite3
 
-# =========================
-# Model Weights (ignore large files)
-# =========================
+# ── ChromaDB vector store (generated per session) ──────────────────────────────
+data/chroma/
+data/evidence_store/
 
+# ── Exported reports (generated output, not source) ────────────────────────────
+exports/*
+!exports/.gitkeep
+
+# ── DB migrations / runtime files ──────────────────────────────────────────────
+db/*.db
+db/*.sqlite3
+
+# ── Logs ───────────────────────────────────────────────────────────────────────
+*.log
+*.out
+*.err
+logs/
+
+# ── ML / model weights ─────────────────────────────────────────────────────────
 *.h5
 *.pt
 *.pth
@@ -58,27 +54,46 @@ db/*
 *.onnx
 *.pkl
 *.joblib
+*.bin
 
-# =========================
-# Exports / Outputs
-# =========================
-exports/*
-!exports/.gitkeep
+# ── Frontend ───────────────────────────────────────────────────────────────────
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/.eslintcache
 
-# =========================
-# Cache / Temp
-# =========================
+# ── OS artifacts ───────────────────────────────────────────────────────────────
+.DS_Store
+.DS_Store?
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# ── Editor / IDE ───────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*.suo
+*.user
+*.sublime-workspace
+
+# ── Cache & temp ───────────────────────────────────────────────────────────────
 .cache/
 *.tmp
 *.temp
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
 
-# =========================
-# Jupyter Notebooks
-# =========================
-.ipynb_checkpoints
+# ── Jupyter ────────────────────────────────────────────────────────────────────
+.ipynb_checkpoints/
+*.ipynb
 
-# =========================
-# Misc
-# =========================
-*.sqlite3
-*.db
+# ── Docker ─────────────────────────────────────────────────────────────────────
+# (Dockerfile and .dockerignore ARE tracked)
+
+# ── Test artifacts ─────────────────────────────────────────────────────────────
+htmlcov/
+.coverage
+coverage.xml

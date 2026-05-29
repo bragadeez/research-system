@@ -89,6 +89,12 @@ _running_tasks: Dict[str, asyncio.Task] = {}
 
 class ResearchRequest(BaseModel):
     topic: str
+    research_mode: str = "standard"
+    paper_threshold: Optional[int] = None
+
+
+class ChatRequest(BaseModel):
+    message: str
 
 
 class ImportPayload(BaseModel):
@@ -98,7 +104,7 @@ class ImportPayload(BaseModel):
 
 
 # ── Background pipeline runner ────────────────────────────────────────────────
-async def _run_pipeline(session_id: str, topic: str):
+async def _run_pipeline(session_id: str, topic: str, research_mode: str = "standard", paper_threshold: Optional[int] = None):
     async def callback(update: dict):
         agent = update.get("agent")
         agent_to_status = {
@@ -122,7 +128,24 @@ async def _run_pipeline(session_id: str, topic: str):
         await manager.send(session_id, update)
 
     try:
-        state = await pipeline.run(topic, session_id=session_id, progress_callback=callback)
+        if research_mode == "heavy":
+            from orchestrator.heavy_pipeline import heavy_pipeline
+            state = await heavy_pipeline.run(
+                topic,
+                session_id=session_id,
+                progress_callback=callback,
+                research_mode=research_mode,
+                paper_threshold=paper_threshold,
+            )
+        else:
+            state = await pipeline.run(
+                topic,
+                session_id=session_id,
+                progress_callback=callback,
+                research_mode=research_mode,
+                paper_threshold=paper_threshold,
+            )
+
         if db.get_session(session_id):
             fact_checks = [fc.model_dump() for fc in state.critique.fact_checks] if state.critique else []
             db.save_report(
@@ -139,6 +162,20 @@ async def _run_pipeline(session_id: str, topic: str):
                 sources=len(state.ranked_sources),
             )
             await callback({"agent": "system", "message": "🎉 Research complete!", "data": state.to_summary()})
+            
+            # Auto-build RAG index
+            try:
+                if state.report:
+                    from core.rag_engine import rag_engine
+                    rag_engine.build_index(
+                        session_id,
+                        state.report,
+                        state.academic_papers if research_mode == "heavy" else None
+                    )
+            except Exception as e:
+                from loguru import logger
+                logger.error(f"[Server] Failed to auto-build RAG index: {e}")
+
     except asyncio.CancelledError:
         if db.get_session(session_id):
             db.update_session(session_id, "error")
@@ -168,9 +205,9 @@ async def health():
 async def start_research(req: ResearchRequest):
     if not req.topic.strip():
         raise HTTPException(400, "Topic cannot be empty")
-    sid = db.create_session(req.topic.strip())
+    sid = db.create_session(req.topic.strip(), research_mode=req.research_mode)
     manager.make_queue(sid)
-    task = asyncio.ensure_future(_run_pipeline(sid, req.topic.strip()))
+    task = asyncio.ensure_future(_run_pipeline(sid, req.topic.strip(), req.research_mode, req.paper_threshold))
     _running_tasks[sid] = task
     return {"session_id": sid, "status": "running"}
 
@@ -185,7 +222,7 @@ async def continue_research(session_id: str):
         return {"session_id": session_id, "status": "already_running"}
     db.update_session(session_id, "running")
     manager.make_queue(session_id)
-    task = asyncio.ensure_future(_run_pipeline(session_id, session["topic"]))
+    task = asyncio.ensure_future(_run_pipeline(session_id, session["topic"], session.get("research_mode", "standard")))
     _running_tasks[session_id] = task
     return {"session_id": session_id, "status": "running"}
 
@@ -380,6 +417,76 @@ async def export_docx(session_id: str):
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         headers={"Content-Disposition": f'attachment; filename="{slug}_{session_id[:8]}.docx"'},
     )
+
+
+# ── RAG Chatbot Endpoints ──────────────────────────────────────────────────────
+@app.post("/api/research/{session_id}/chat")
+async def chat_with_report(session_id: str, req: ChatRequest):
+    session = db.get_session(session_id)
+    if not session:
+        raise HTTPException(404, "Session not found")
+    report = db.get_report(session_id)
+    if not report:
+        raise HTTPException(400, "Report has not been generated yet for this session")
+
+    # Fetch history BEFORE adding new message to avoid LLM repeating itself
+    history = db.get_chat_history(session_id)
+
+    # Log user message
+    db.add_chat_message(session_id, "user", req.message)
+
+    # Dynamic/lazy vector store building if needed
+    from core.rag_engine import rag_engine
+    try:
+        collection_name = f"session_{session_id}"
+        client = rag_engine.chroma_client
+        try:
+            client.get_collection(name=collection_name)
+        except Exception:
+            # Does not exist, let's index report content
+            rag_engine.build_index(session_id, report["content"])
+    except Exception as e:
+        from loguru import logger
+        logger.error(f"[Server] Failed to dynamically index session: {e}")
+
+    # Generate answer
+    answer, sources = await rag_engine.answer_async(session_id, req.message, history)
+
+    # Log assistant response
+    db.add_chat_message(session_id, "assistant", answer)
+
+    return {"answer": answer, "sources": sources}
+
+
+@app.get("/api/research/{session_id}/chat/history")
+async def get_chat_history(session_id: str):
+    if not db.get_session(session_id):
+        raise HTTPException(404, "Session not found")
+    return {"history": db.get_chat_history(session_id)}
+
+
+@app.delete("/api/research/{session_id}/chat")
+async def clear_chat_history(session_id: str):
+    if not db.get_session(session_id):
+        raise HTTPException(404, "Session not found")
+    db.clear_chat_history(session_id)
+    return {"status": "cleared"}
+
+
+@app.post("/api/research/{session_id}/chat/build")
+async def build_chat_index(session_id: str):
+    session = db.get_session(session_id)
+    if not session:
+        raise HTTPException(404, "Session not found")
+    report = db.get_report(session_id)
+    if not report:
+        raise HTTPException(400, "Report not found")
+
+    from core.rag_engine import rag_engine
+    success = rag_engine.build_index(session_id, report["content"])
+    if not success:
+        raise HTTPException(500, "Failed to build vector store index")
+    return {"status": "indexed"}
 
 
 # ── WebSocket ─────────────────────────────────────────────────────────────────

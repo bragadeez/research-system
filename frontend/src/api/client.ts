@@ -1,12 +1,16 @@
-// src/api/client.ts
+import type { ChatMessage, ChatResponse, ResearchMode } from "../types";
+
 
 const API_BASE = "http://localhost:8000";
 
-export async function startResearch(topic: string): Promise<{ session_id: string; status: string }> {
+export async function startResearch(
+  topic: string,
+  researchMode: ResearchMode = "standard"
+): Promise<{ session_id: string; status: string }> {
   const res = await fetch(`${API_BASE}/api/research`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ topic }),
+    body: JSON.stringify({ topic, research_mode: researchMode }),
   });
   if (!res.ok) throw new Error(`Failed to start research: ${res.statusText}`);
   return res.json();
@@ -62,4 +66,35 @@ export async function importResearch(payload: any): Promise<{ session_id: string
   if (!res.ok) throw new Error(`Failed to import research: ${res.statusText}`);
   return res.json();
 }
+
+// ── Chat RAG APIs ────────────────────────────────────────────────────────────
+
+export async function chatWithReport(sessionId: string, message: string): Promise<ChatResponse> {
+  const res = await fetch(`${API_BASE}/api/research/${sessionId}/chat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message }),
+  });
+  if (!res.ok) throw new Error(`Failed to send message: ${res.statusText}`);
+  return res.json();
+}
+
+export async function getChatHistory(sessionId: string): Promise<{ history: ChatMessage[] }> {
+  const res = await fetch(`${API_BASE}/api/research/${sessionId}/chat/history`);
+  if (!res.ok) throw new Error(`Failed to load chat history: ${res.statusText}`);
+  return res.json();
+}
+
+export async function clearChatHistory(sessionId: string): Promise<{ status: string }> {
+  const res = await fetch(`${API_BASE}/api/research/${sessionId}/chat`, { method: "DELETE" });
+  if (!res.ok) throw new Error(`Failed to clear chat history: ${res.statusText}`);
+  return res.json();
+}
+
+export async function buildChatIndex(sessionId: string): Promise<{ status: string }> {
+  const res = await fetch(`${API_BASE}/api/research/${sessionId}/chat/build`, { method: "POST" });
+  if (!res.ok) throw new Error(`Failed to build vector store: ${res.statusText}`);
+  return res.json();
+}
+
 

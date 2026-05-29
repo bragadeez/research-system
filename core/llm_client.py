@@ -120,79 +120,113 @@ class GeminiClient:
 
     @retry(stop=stop_after_attempt(5), wait=wait_exponential(multiplier=2, min=4, max=45))
     async def generate_text_async(self, prompt: str, high_reasoning: bool = True) -> str:
-        model_used = self.volume_model if (not high_reasoning or self.high_reasoning_fallback_active) else self.high_reasoning_model
-        attempt_key_idx = self.current_key_idx
-        client = self.client
-        if not client:
-            raise ValueError("[Gemini] API Client not initialized. Please verify your GEMINI_API_KEY environment variable.")
-        try:
-            response = await client.aio.models.generate_content(
-                model=model_used,
-                contents=prompt,
-                config={"temperature": settings.GEMINI_TEMPERATURE},
-            )
-            return response.text
-        except Exception as e:
-            logger.error(f"[Gemini] generate_text failed (key index {attempt_key_idx}, model {model_used}): {e}")
-            err_str = str(e)
-            is_quota_error = "GenerateRequestsPerDay" in err_str or "PerDay" in err_str or "quota" in err_str.lower() or "RESOURCE_EXHAUSTED" in err_str
+        max_attempts = max(3, len(self.api_keys) * 2)
+        last_exception = None
+
+        for attempt in range(max_attempts):
+            model_used = self.volume_model if (not high_reasoning or self.high_reasoning_fallback_active) else self.high_reasoning_model
+            attempt_key_idx = self.current_key_idx
+            client = self.client
+            if not client:
+                raise ValueError("[Gemini] API Client not initialized. Please verify your GEMINI_API_KEY environment variable.")
             
-            if is_quota_error and model_used == self.high_reasoning_model:
-                with self._lock:
-                    if attempt_key_idx not in self.exhausted_keys:
-                        self.exhausted_keys.add(attempt_key_idx)
-                        logger.warning(f"[Gemini] Key index {attempt_key_idx} marked as exhausted for high-reasoning model due to daily limit.")
+            try:
+                response = await client.aio.models.generate_content(
+                    model=model_used,
+                    contents=prompt,
+                    config={"temperature": settings.GEMINI_TEMPERATURE},
+                )
+                return response.text
+            except Exception as e:
+                last_exception = e
+                err_str = str(e)
+                logger.warning(f"[Gemini] generate_text failed (attempt {attempt+1}/{max_attempts}, key index {attempt_key_idx}, model {model_used}): {e}")
+                
+                is_quota_error = "429" in err_str or "RESOURCE_EXHAUSTED" in err_str or "quota" in err_str.lower() or "limit" in err_str.lower()
+                is_daily_limit = "GenerateRequestsPerDay" in err_str or "PerDay" in err_str or "daily" in err_str.lower()
+                
+                if is_quota_error:
+                    if is_daily_limit and model_used == self.high_reasoning_model:
+                        with self._lock:
+                            if attempt_key_idx not in self.exhausted_keys:
+                                self.exhausted_keys.add(attempt_key_idx)
+                                logger.warning(f"[Gemini] Key index {attempt_key_idx} marked as daily/permanently exhausted for high-reasoning model.")
+                            
+                            if len(self.exhausted_keys) >= len(self.api_keys):
+                                logger.warning("[Gemini] All keys exhausted for high-reasoning model. Activating fallback to volume model.")
+                                self.high_reasoning_fallback_active = True
                     
-                    if len(self.exhausted_keys) >= len(self.api_keys):
-                        logger.warning("[Gemini] All keys exhausted for high-reasoning model. Activating fallback to volume model.")
-                        self.high_reasoning_fallback_active = True
-            
-            delay = self._get_retry_delay(e)
-            if delay > 0:
-                logger.warning(f"[Gemini] Rate limited. Sleeping for {delay + 1:.2f}s before retry...")
-                await asyncio.sleep(delay + 1.0)
-            self.rotate_key(attempt_key_idx, e)
-            raise
+                    self.rotate_key(attempt_key_idx, e)
+                    # Instant retry on key rotation (or small backoff if we've cycled through all keys once)
+                    if attempt >= len(self.api_keys):
+                        delay = self._get_retry_delay(e) or 2.0
+                        logger.warning(f"[Gemini] Cycled through all keys. Sleeping for {delay:.2f}s before next attempt...")
+                        await asyncio.sleep(delay)
+                    continue
+                else:
+                    # Non-quota error, propagate immediately to allow standard retry or fail
+                    raise e
+        
+        if last_exception:
+            raise last_exception
+        raise ValueError("[Gemini] Content generation failed after all rotation attempts.")
 
     @retry(stop=stop_after_attempt(5), wait=wait_exponential(multiplier=2, min=4, max=45))
     async def generate_structured_async(self, prompt: str, schema: Type[T], high_reasoning: bool = True) -> T:
-        model_used = self.volume_model if (not high_reasoning or self.high_reasoning_fallback_active) else self.high_reasoning_model
-        attempt_key_idx = self.current_key_idx
-        client = self.client
-        if not client:
-            raise ValueError("[Gemini] API Client not initialized. Please verify your GEMINI_API_KEY environment variable.")
-        try:
-            response = await client.aio.models.generate_content(
-                model=model_used,
-                contents=prompt,
-                config={
-                    "temperature": settings.GEMINI_TEMPERATURE,
-                    "response_mime_type": "application/json",
-                    "response_json_schema": schema.model_json_schema(),
-                },
-            )
-            return schema.model_validate_json(response.text)
-        except Exception as e:
-            logger.error(f"[Gemini] generate_structured failed (key index {attempt_key_idx}, model {model_used}): {e}")
-            err_str = str(e)
-            is_quota_error = "GenerateRequestsPerDay" in err_str or "PerDay" in err_str or "quota" in err_str.lower() or "RESOURCE_EXHAUSTED" in err_str
+        max_attempts = max(3, len(self.api_keys) * 2)
+        last_exception = None
+
+        for attempt in range(max_attempts):
+            model_used = self.volume_model if (not high_reasoning or self.high_reasoning_fallback_active) else self.high_reasoning_model
+            attempt_key_idx = self.current_key_idx
+            client = self.client
+            if not client:
+                raise ValueError("[Gemini] API Client not initialized. Please verify your GEMINI_API_KEY environment variable.")
             
-            if is_quota_error and model_used == self.high_reasoning_model:
-                with self._lock:
-                    if attempt_key_idx not in self.exhausted_keys:
-                        self.exhausted_keys.add(attempt_key_idx)
-                        logger.warning(f"[Gemini] Key index {attempt_key_idx} marked as exhausted for high-reasoning model due to daily limit.")
+            try:
+                response = await client.aio.models.generate_content(
+                    model=model_used,
+                    contents=prompt,
+                    config={
+                        "temperature": settings.GEMINI_TEMPERATURE,
+                        "response_mime_type": "application/json",
+                        "response_json_schema": schema.model_json_schema(),
+                    },
+                )
+                return schema.model_validate_json(response.text)
+            except Exception as e:
+                last_exception = e
+                err_str = str(e)
+                logger.warning(f"[Gemini] generate_structured failed (attempt {attempt+1}/{max_attempts}, key index {attempt_key_idx}, model {model_used}): {e}")
+                
+                is_quota_error = "429" in err_str or "RESOURCE_EXHAUSTED" in err_str or "quota" in err_str.lower() or "limit" in err_str.lower()
+                is_daily_limit = "GenerateRequestsPerDay" in err_str or "PerDay" in err_str or "daily" in err_str.lower()
+                
+                if is_quota_error:
+                    if is_daily_limit and model_used == self.high_reasoning_model:
+                        with self._lock:
+                            if attempt_key_idx not in self.exhausted_keys:
+                                self.exhausted_keys.add(attempt_key_idx)
+                                logger.warning(f"[Gemini] Key index {attempt_key_idx} marked as daily/permanently exhausted for high-reasoning model.")
+                            
+                            if len(self.exhausted_keys) >= len(self.api_keys):
+                                logger.warning("[Gemini] All keys exhausted for high-reasoning model. Activating fallback to volume model.")
+                                self.high_reasoning_fallback_active = True
                     
-                    if len(self.exhausted_keys) >= len(self.api_keys):
-                        logger.warning("[Gemini] All keys exhausted for high-reasoning model. Activating fallback to volume model.")
-                        self.high_reasoning_fallback_active = True
-            
-            delay = self._get_retry_delay(e)
-            if delay > 0:
-                logger.warning(f"[Gemini] Rate limited. Sleeping for {delay + 1:.2f}s before retry...")
-                await asyncio.sleep(delay + 1.0)
-            self.rotate_key(attempt_key_idx, e)
-            raise
+                    self.rotate_key(attempt_key_idx, e)
+                    # Instant retry on key rotation (or small backoff if we've cycled through all keys once)
+                    if attempt >= len(self.api_keys):
+                        delay = self._get_retry_delay(e) or 2.0
+                        logger.warning(f"[Gemini] Cycled through all keys. Sleeping for {delay:.2f}s before next attempt...")
+                        await asyncio.sleep(delay)
+                    continue
+                else:
+                    # Non-quota error, propagate immediately to allow standard retry or fail
+                    raise e
+        
+        if last_exception:
+            raise last_exception
+        raise ValueError("[Gemini] Structured content generation failed after all rotation attempts.")
 
     async def extract_evidence_async(self, paragraphs: List[str], topic: str, source_title: str) -> List[dict]:
         """

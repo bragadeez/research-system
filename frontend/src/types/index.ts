@@ -1,5 +1,7 @@
 // src/types/index.ts
 
+export type ResearchMode = "standard" | "heavy";
+
 export interface Session {
   id: string;
   topic: string;
@@ -9,6 +11,7 @@ export interface Session {
   confidence: number | null;
   findings: number;
   sources: number;
+  research_mode?: ResearchMode;
 }
 
 export interface FactCheck {
@@ -51,3 +54,22 @@ export type PipelineStatus =
   | "validating"
   | "complete"
   | "error";
+
+export interface ChatMessage {
+  role: "user" | "assistant";
+  content: string;
+  created_at?: string;
+}
+
+export interface ChatSource {
+  type: string;
+  title: string;
+  url?: string;
+  snippet: string;
+}
+
+export interface ChatResponse {
+  answer: string;
+  sources: ChatSource[];
+}
+

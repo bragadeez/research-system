@@ -34,15 +34,28 @@ class Settings(BaseSettings):
     DB_PATH: str = "./data/research.db"
     EXPORT_PATH: str = "./exports"
 
-    # ── Embeddings (source ranking only) ─────────────────────────────────────
+    # ── Embeddings (source ranking + RAG) ─────────────────────────────────────
     EMBEDDING_MODEL: str = "BAAI/bge-small-en-v1.5"
 
     # ── Server ───────────────────────────────────────────────────────────────
     API_HOST: str = "0.0.0.0"
     API_PORT: int = 8000
 
+    # ── Research Heavy Mode ───────────────────────────────────────────────────
+    HEAVY_PAPER_THRESHOLD: int = 10        # top-K papers kept after citation scoring
+    HEAVY_MIN_CITATIONS: int = 0           # minimum citations to include (0 = include all, ranked)
+    HEAVY_MAX_SEARCH_RESULTS: int = 25     # fetch this many before filtering to top-K
+    OPENALEX_EMAIL: str = "research@scholarnode.ai"  # required for OpenAlex polite pool
+
+    # ── RAG Chatbot ───────────────────────────────────────────────────────────
+    CHROMA_PATH: str = "./data/chroma"     # ChromaDB persistence directory
+    RAG_CHUNK_SIZE: int = 800              # characters per chunk
+    RAG_CHUNK_OVERLAP: int = 150           # overlap between chunks
+    RAG_TOP_K: int = 5                     # retrieved chunks per query
+    RAG_MAX_HISTORY: int = 6              # conversation turns kept in memory
+
     def ensure_dirs(self):
-        for path in [self.EXPORT_PATH, "./data"]:
+        for path in [self.EXPORT_PATH, "./data", self.CHROMA_PATH]:
             os.makedirs(path, exist_ok=True)
 
 
